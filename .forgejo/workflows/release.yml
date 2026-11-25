@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Create Forgejo Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        env:
+          SERVER_URL: ${{ github.server_url }}
+          EXTERNAL_URL: ${{ vars.FORGEJO_EXTERNAL_URL }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          FIXED_URL="$SERVER_URL"
+          if [ -n "$EXTERNAL_URL" ]; then
+            FIXED_URL=$(echo "$SERVER_URL" | sed "s|http://server:3000|${EXTERNAL_URL%/}|g")
+          fi
+          AUTH_URL=$(echo "$FIXED_URL" | sed "s|://|://x-access-token:${TOKEN}@|")
+          git config --global init.defaultBranch main
+          git config --global --add safe.directory "$PWD"
+          git init .
+          git remote add origin "${AUTH_URL}/${REPO}.git"
+          git fetch --depth=1 origin "$SHA"
+          git checkout -q FETCH_HEAD
+
+      - name: Create Release & Upload plex_smart.zip
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          API_URL: ${{ github.api_url }}
+          EXTERNAL_URL: ${{ vars.FORGEJO_EXTERNAL_URL }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          python3 - << 'EOF'
+          import io
+          import json
+          import os
+          import pathlib
+          import urllib.request
+          import zipfile
+
+          ext_url = os.environ.get("EXTERNAL_URL", "").rstrip("/")
+          api_url = os.environ["API_URL"].rstrip("/")
+          if ext_url:
+              api_url = api_url.replace("http://server:3000", ext_url)
+          repo = os.environ["REPO"]
+          tag = os.environ["TAG"]
+          token = os.environ["TOKEN"]
+
+          src_dir = pathlib.Path("custom_components/plex_smart")
+          zip_buf = io.BytesIO()
+          with zipfile.ZipFile(zip_buf, "w", zipfile.ZIP_DEFLATED) as zf:
+              for p in sorted(src_dir.rglob("*")):
+                  if p.is_file() and "__pycache__" not in p.parts and not p.name.endswith((".pyc", ".DS_Store")):
+                      zf.write(p, p.relative_to(src_dir).as_posix())
+          zip_bytes = zip_buf.getvalue()
+
+          payload = json.dumps({
+              "tag_name": tag,
+              "name": f"SmartPlex {tag}",
+              "body": f"## SmartPlex {tag}\n\nPackaged `plex_smart.zip` release asset for HACS.",
+              "draft": False,
+              "prerelease": False,
+          }).encode("utf-8")
+
+          req = urllib.request.Request(
+              f"{api_url}/repos/{repo}/releases",
+              data=payload,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/json",
+                  "Accept": "application/json",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(req) as resp:
+              release = json.loads(resp.read().decode("utf-8"))
+
+          release_id = release["id"]
+          upload_req = urllib.request.Request(
+              f"{api_url}/repos/{repo}/releases/{release_id}/assets?name=plex_smart.zip",
+              data=zip_bytes,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Content-Type": "application/zip",
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(upload_req) as resp:
+              print("Uploaded plex_smart.zip:", resp.status)
+          EOF

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="184" height="28" role="img" aria-label="PLEX OPENAPI: V1.2.3">
+  <title>PLEX OPENAPI: V1.2.3</title>
+  <g shape-rendering="crispEdges">
+    <rect width="114" height="28" fill="#555"/>
+    <rect x="114" width="70" height="28" fill="#282A2D"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100">
+    <text transform="scale(.1)" x="570" y="175" textLength="900" fill="#fff">PLEX OPENAPI</text>
+    <text transform="scale(.1)" x="1490" y="175" textLength="460" fill="#E5A00D" font-weight="bold">V1.2.3</text>
+  </g>
+</svg>

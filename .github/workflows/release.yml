@@ -1,0 +1,26 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Package plex_smart.zip
+        run: |
+          cd custom_components/plex_smart
+          zip -r "${GITHUB_WORKSPACE}/plex_smart.zip" . -x "*/__pycache__/*" "*.pyc" "*.DS_Store"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: plex_smart.zip
+          generate_release_notes: true

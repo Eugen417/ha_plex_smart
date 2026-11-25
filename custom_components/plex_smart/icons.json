@@ -1,0 +1,22 @@
+{
+  "services": {
+    "command": {
+      "service": "mdi:robot-excited"
+    },
+    "play": {
+      "service": "mdi:play-circle"
+    },
+    "handoff": {
+      "service": "mdi:cast-connected"
+    },
+    "control": {
+      "service": "mdi:play-pause"
+    },
+    "spin_roulette": {
+      "service": "mdi:dice-multiple"
+    },
+    "refresh_cache": {
+      "service": "mdi:database-refresh"
+    }
+  }
+}

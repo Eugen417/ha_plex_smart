@@ -1,0 +1,305 @@
+command:
+  fields:
+    command_text:
+      required: true
+      example: "включи свежую комедию в зале"
+      selector:
+        text:
+    zone:
+      required: false
+      selector:
+        text:
+    ai_entity:
+      required: false
+      selector:
+        entity:
+          domain: ai_task
+    entry_id:
+      required: false
+      selector:
+        text:
+
+play:
+  fields:
+    zone:
+      required: false
+      selector:
+        text:
+    rating_key:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 999999999
+          mode: box
+    media_type:
+      required: false
+      default: movie
+      selector:
+        select:
+          options:
+            - movie
+            - show
+            - music
+            - playlist
+    title:
+      required: false
+      selector:
+        text:
+    original_title:
+      required: false
+      selector:
+        text:
+    artist:
+      required: false
+      selector:
+        text:
+    album:
+      required: false
+      selector:
+        text:
+    track:
+      required: false
+      selector:
+        text:
+    similar_to:
+      required: false
+      selector:
+        text:
+    season:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 100
+          mode: box
+    episode:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 1000
+          mode: box
+    actor:
+      required: false
+      selector:
+        text:
+    actors:
+      required: false
+      selector:
+        object:
+    actors_original:
+      required: false
+      selector:
+        object:
+    candidate_titles:
+      required: false
+      selector:
+        object:
+    director:
+      required: false
+      selector:
+        text:
+    genre:
+      required: false
+      selector:
+        text:
+    year:
+      required: false
+      selector:
+        number:
+          min: 1900
+          max: 2100
+          mode: box
+    library:
+      required: false
+      selector:
+        text:
+    sort_order:
+      required: false
+      default: default
+      selector:
+        select:
+          options:
+            - default
+            - newest
+            - oldest
+            - top_rated
+            - random
+    resume:
+      required: false
+      default: false
+      selector:
+        boolean:
+    shuffle:
+      required: false
+      default: false
+      selector:
+        boolean:
+    offset_sec:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          mode: box
+
+handoff:
+  fields:
+    target_zone:
+      required: true
+      selector:
+        text:
+    source_zone:
+      required: false
+      selector:
+        text:
+    turn_off_source:
+      required: false
+      selector:
+        boolean:
+    media_type:
+      required: false
+      selector:
+        select:
+          options:
+            - movie
+            - show
+            - music
+
+control:
+  fields:
+    action:
+      required: true
+      selector:
+        select:
+          options:
+            - pause
+            - resume_play
+            - play_pause
+            - stop
+            - seek_relative
+            - seek_to
+            - restart
+            - next
+            - previous
+            - set_repeat
+            - set_shuffle
+    zone:
+      required: false
+      selector:
+        text:
+    offset_sec:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 86400
+          mode: box
+    delta_sec:
+      required: false
+      selector:
+        number:
+          min: -3600
+          max: 3600
+          mode: box
+    repeat:
+      required: false
+      selector:
+        select:
+          options:
+            - "off"
+            - "one"
+            - "all"
+    shuffle:
+      required: false
+      selector:
+        boolean:
+    entry_id:
+      required: false
+      selector:
+        text:
+
+spin_roulette:
+  fields:
+    preset:
+      required: false
+      selector:
+        text:
+    zone:
+      required: false
+      selector:
+        text:
+    libraries:
+      required: false
+      selector:
+        object:
+    watch_filter:
+      required: false
+      selector:
+        select:
+          options:
+            - unwatched
+            - in_progress
+            - watched
+            - any
+    include_genres:
+      required: false
+      selector:
+        object:
+    exclude_genres:
+      required: false
+      selector:
+        object:
+    min_rating:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 10
+          step: 0.1
+          mode: box
+    year_from:
+      required: false
+      selector:
+        number:
+          min: 1900
+          max: 2100
+          mode: box
+    max_duration_min:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 400
+          mode: box
+    pick_count:
+      required: false
+      selector:
+        number:
+          min: 1
+          max: 6
+          mode: slider
+    collage_layout:
+      required: false
+      selector:
+        select:
+          options:
+            - auto
+            - grid_2x2
+            - row
+            - single
+    anti_repeat_days:
+      required: false
+      selector:
+        number:
+          min: 0
+          max: 365
+          mode: box
+
+refresh_cache:
+  fields:
+    entry_id:
+      required: false
+      selector:
+        text:

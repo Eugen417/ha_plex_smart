@@ -1,0 +1,372 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Select Plex Server",
+        "description": "Choose an existing Home Assistant Plex server for 1-click setup or enter URL & token manually.",
+        "data": {
+          "server_source": "Plex Server"
+        }
+      },
+      "manual": {
+        "title": "Connect to Plex Media Server",
+        "description": "If you picked an existing HA Plex server, URL & Token are already filled automatically — just click Submit.",
+        "data": {
+          "url": "Plex Server URL",
+          "token": "Plex Token (X-Plex-Token)",
+          "verify_ssl": "Verify SSL certificate",
+          "scan_button": "Plex Scan Clients button",
+          "ai_entity": "AI Task entity for plex_smart.command",
+          "cache_interval": "Library cache refresh interval (minutes)",
+          "user_title": "Custom greeting / address"
+        },
+        "data_description": {
+          "url": "Local Plex Media Server address, e.g. https://192.168.1.100:32400 (auto-filled from HA Plex).",
+          "token": "Auto-filled from built-in Plex integration. For manual entry: Plex Web → item (⋯) → Get Info → View XML → X-Plex-Token at the end of the URL.",
+          "verify_ssl": "Leave OFF for local LAN IPs or self-signed Plex certificates; turn ON only if using a valid public HTTPS domain.",
+          "scan_button": "The button.*_scan_clients entity from built-in Plex integration so SmartPlex discovers waking TV clients faster.",
+          "ai_entity": "Used ONLY by the plex_smart.command service for text automations. Voice Assist agents (Gemini, Yandex, GigaChat, Ollama) work directly via SmartPlex LLM API without AI Task.",
+          "cache_interval": "How often to refresh the local movie/show/music index in memory (default: 60 min).",
+          "user_title": "Leave EMPTY for neutral replies in your Home Assistant language, or enter how SmartPlex should address you (e.g. 'Sir', 'Boss', or your name)."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure SmartPlex",
+        "data": {
+          "url": "Plex Server URL",
+          "token": "Plex Token (X-Plex-Token)",
+          "verify_ssl": "Verify SSL certificate",
+          "scan_button": "Plex Scan Clients button",
+          "ai_entity": "AI Task entity for plex_smart.command",
+          "cache_interval": "Library cache refresh interval (minutes)",
+          "user_title": "Custom greeting / address"
+        },
+        "data_description": {
+          "url": "Local Plex Media Server URL (e.g. https://192.168.1.100:32400).",
+          "token": "X-Plex-Token (leave unchanged unless your token expired).",
+          "verify_ssl": "Keep OFF for local IP / self-signed SSL.",
+          "scan_button": "Built-in Plex scan_clients button for discovering waking TVs.",
+          "ai_entity": "Used only by plex_smart.command (not needed when using Assist LLM API).",
+          "cache_interval": "Background library cache refresh interval in minutes.",
+          "user_title": "Leave empty for neutral localized replies, or enter a custom address (e.g. 'Sir')."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Re-authenticate SmartPlex",
+        "description": "Your Plex token expired or was revoked. Enter a new X-Plex-Token.",
+        "data": {
+          "token": "Plex Token (X-Plex-Token)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to Plex server. Check URL and SSL setting.",
+      "invalid_auth": "Invalid Plex token (HTTP 401).",
+      "unknown": "Unexpected error while connecting to Plex."
+    },
+    "abort": {
+      "already_configured": "This Plex server is already configured in SmartPlex.",
+      "reconfigure_successful": "SmartPlex settings updated.",
+      "reauth_successful": "SmartPlex re-authenticated successfully."
+    }
+  },
+  "config_subentries": {
+    "zone": {
+      "entry_type": "Media Zone",
+      "initiate_flow": {
+        "user": "Add media zone",
+        "reconfigure": "Configure media zone"
+      },
+      "step": {
+        "set_zone": {
+          "title": "Media Zone Setup",
+          "description": "Fill in the 5 basic fields below. Advanced options (aliases, paired TV/AVR for boxes, manual entities) are collapsed and only needed for special setups.",
+          "data": {
+            "zone_name": "Zone name",
+            "area_id": "Home Assistant Area",
+            "is_default": "Primary default player",
+            "plex_client": "Plex client (media_player.plex_*)",
+            "power_profile": "TV / Player launch profile",
+            "hardware_device_id": "Physical TV / Player device"
+          },
+          "data_description": {
+            "zone_name": "Human name for this player (e.g. 'Living Room LG' or 'Bedroom').",
+            "area_id": "Link to an HA Area so a voice satellite in that room knows which screen to use automatically.",
+            "is_default": "Turn ON if you have multiple players in the same room (e.g. LG TV + Apple TV) and want this one used whenever you don't specify a player name.",
+            "plex_client": "Select the Plex app client entity (media_player.plex_*), NOT the TV itself.",
+            "power_profile": "Select the device type so SmartPlex uses the right wake/app launch commands and timing presets.",
+            "hardware_device_id": "Select the physical TV or streaming box device in HA. Its media_player & remote entities are detected automatically."
+          },
+          "sections": {
+            "advanced_options": {
+              "name": "Advanced options (aliases, paired TV/AVR, manual overrides)",
+              "description": "Leave collapsed for a standard Smart TV. Open only if you use an external streaming box or want custom voice aliases.",
+              "data": {
+                "aliases": "Voice aliases (comma-separated)",
+                "display_device_id": "Paired TV / Projector / AVR device (for set-top boxes)",
+                "display_source": "Paired TV / AVR HDMI input source",
+                "app_source": "Plex app source / deep-link",
+                "turn_off_on_handoff": "Turn off this TV when transferring playback to another room",
+                "hardware_entity": "Manual media_player entity override",
+                "remote_entity": "Manual remote.* entity override"
+              },
+              "data_description": {
+                "aliases": "Spoken synonyms separated by commas (e.g. 'apple tv, box' or 'kids room'). Only needed if you use nicknames.",
+                "display_device_id": "Fill ONLY if the player above is an external box (Apple TV / Shield) and the TV/projector/AVR does not wake via HDMI-CEC.",
+                "display_source": "HDMI input name to select on the paired TV/AVR (e.g. 'Apple TV' or 'HDMI 1'). Leave empty if HDMI-CEC switches automatically.",
+                "app_source": "Keep 'Plex' for almost all TVs. Change only for custom Android TV deep-links or renamed sources.",
+                "turn_off_on_handoff": "Automatically powers off this TV when you ask to continue watching in another room.",
+                "hardware_entity": "Leave EMPTY (auto-resolved from the Physical TV device above). Only needed for custom entities without a device.",
+                "remote_entity": "Leave EMPTY (auto-resolved from the Physical TV device above). Only needed for standalone IR blasters."
+              }
+            }
+          }
+        },
+        "zone_timings": {
+          "title": "Zone Timings & Start Phases",
+          "description": "Defaults are already tuned for your selected TV profile. Adjust only if your TV boots slower or faster than usual.",
+          "data": {
+            "cold_boot_timeout": "Cold start: max wait for TV power-on (sec)",
+            "cold_os_delay": "Cold start: TV OS settle delay after power-on (sec)",
+            "cold_app_delay": "Cold start: delay after launching Plex app (sec)",
+            "warm_app_delay": "Warm start: delay after launching Plex on awake TV (sec)",
+            "hot_delay": "Hot start: delay when Plex is already open (sec)",
+            "scan_interval": "Scan clients interval (sec)",
+            "scan_timeout": "Max wait for Plex client (sec)",
+            "play_retry_count": "Playback retry attempts",
+            "play_retry_delay": "Delay before playback retry (sec)",
+            "handoff_rewind_sec": "Handoff rewind overlap (sec)",
+            "optimistic_mode": "Optimistic instant response (finish TV boot in background)",
+            "atv_auto_select": "Apple TV: auto-press Select on Plex card to start playback",
+            "custom_boot_actions": "Custom Power-On actions",
+            "custom_launch_actions": "Custom Launch Plex actions",
+            "custom_off_actions": "Custom Power-Off actions"
+          },
+          "data_description": {
+            "cold_boot_timeout": "Used when TV is OFF. Continues early as soon as TV reports 'on', or proceeds optimistically after this limit.",
+            "cold_os_delay": "Short pause after TV switches to 'on' so webOS/Tizen/tvOS accepts app commands (increase by 1–2s if Plex doesn't open on cold start).",
+            "cold_app_delay": "Initial pause after opening Plex on a freshly booted TV before scanning for the client.",
+            "warm_app_delay": "Pause after opening Plex when the TV was ALREADY on (also used as card-render wait on Apple TV).",
+            "hot_delay": "Pause when Plex is ALREADY open and ready. Keep at 0 for instant switching.",
+            "scan_interval": "How often to press Plex Scan Clients while waiting for the app to appear online.",
+            "scan_timeout": "Maximum total seconds to wait for the Plex client to appear online.",
+            "play_retry_count": "How many times to retry play_media if the Plex app is still initializing (e.g. brief 404).",
+            "play_retry_delay": "Seconds between playback retries.",
+            "handoff_rewind_sec": "Seconds to rewind when transferring a movie to another room so you don't miss dialogue.",
+            "optimistic_mode": "Recommended ON: voice assistant replies immediately while the TV wakes and starts playback in the background.",
+            "atv_auto_select": "Required for Plex for Apple TV 2026.20+: automatically presses Select on the opened movie card to start playback.",
+            "custom_boot_actions": "Custom HA actions to power on your hardware (IR blaster, smart plug, etc.).",
+            "custom_launch_actions": "Custom HA actions to launch the Plex app.",
+            "custom_off_actions": "Custom HA actions to power off your hardware on handoff."
+          }
+        }
+      },
+      "error": {
+        "not_a_plex_client": "The selected entity is not a Plex client (media_player.plex_*). Choose your Plex app client here and pick your TV in the Physical TV device field."
+      },
+      "abort": {
+        "entry_not_loaded": "Parent SmartPlex server is not loaded.",
+        "reconfigure_successful": "Media zone updated."
+      }
+    },
+    "roulette": {
+      "entry_type": "Movie Roulette Preset",
+      "initiate_flow": {
+        "user": "Add roulette preset",
+        "reconfigure": "Configure roulette preset"
+      },
+      "step": {
+        "set_roulette": {
+          "title": "Movie Roulette Preset",
+          "description": "Configure filters, collage layout, and anti-repeat window for evening movie suggestions in VK or Telegram.",
+          "data": {
+            "roulette_name": "Preset name",
+            "libraries": "Movie libraries (leave empty for all)",
+            "watch_filter": "Watch status filter",
+            "include_genres": "Include only genres",
+            "exclude_genres": "Exclude genres",
+            "min_rating": "Minimum rating (0–10)",
+            "year_from": "Release year from",
+            "max_duration_min": "Max duration in minutes (0 = no limit)",
+            "pick_count": "Number of movie picks (1–6)",
+            "collage_layout": "Poster collage layout",
+            "anti_repeat_days": "Do not repeat suggested movies for (days)",
+            "default_zone": "Default playback zone"
+          },
+          "data_description": {
+            "roulette_name": "Name used in automations (e.g. 'Evening Movie' or 'Kids Cartoon').",
+            "libraries": "Pick specific movie sections (leave empty to include all movie libraries).",
+            "watch_filter": "Choose whether to suggest unwatched movies, rewatch favorites, or any.",
+            "include_genres": "Leave empty for all genres, or pick specific ones (e.g. Comedy, Adventure).",
+            "exclude_genres": "Blacklist genres you don't want suggested (e.g. Horror, Documentary).",
+            "min_rating": "Minimum Plex/TMDB rating (0 disables the rating filter).",
+            "year_from": "Skip older movies released before this year.",
+            "max_duration_min": "Great for weeknights (e.g. 110 min). Set 0 for unlimited length.",
+            "pick_count": "How many posters to include in the showcase (4 in a 2x2 grid looks best on phones).",
+            "collage_layout": "Auto chooses 1=single, 2–3=row, 4=2x2 grid, 5–6=3x2 grid.",
+            "anti_repeat_days": "Remember suggested movies so 'Reroll' always shows fresh options.",
+            "default_zone": "Target zone embedded into the inline Play buttons."
+          }
+        }
+      },
+      "abort": {
+        "entry_not_loaded": "Parent SmartPlex server is not loaded.",
+        "reconfigure_successful": "Movie roulette preset updated."
+      }
+    }
+  },
+  "selector": {
+    "power_profile": {
+      "options": {
+        "apple_tv": "Apple TV (wake + select Plex source)",
+        "lg_webos": "LG webOS TV (WoL + select Plex)",
+        "samsung_tizen": "Samsung Tizen TV (WoL + Plex App ID launch)",
+        "android_tv": "Android TV / Google TV / Shield (deep-link or source)",
+        "standard_media_player": "Standard Media Player (turn_on + select_source)",
+        "custom_actions": "Custom Actions (ActionSelector: IR, AVR, plugs, etc.)"
+      }
+    },
+    "watch_filter": {
+      "options": {
+        "unwatched": "Unwatched only",
+        "in_progress": "In progress (Continue Watching)",
+        "watched": "Watched only (rewatch favorites)",
+        "any": "Any (watched & unwatched)"
+      }
+    },
+    "collage_layout": {
+      "options": {
+        "auto": "Auto (1=single, 2-3=row, 4=2x2, 5-6=3x2)",
+        "grid_2x2": "2x2 Grid (best for phones)",
+        "row": "Horizontal row",
+        "single": "Single large poster"
+      }
+    }
+  },
+  "entity": {
+    "button": {
+      "refresh_cache": {
+        "name": "Refresh library cache"
+      }
+    },
+    "sensor": {
+      "library_stats": {
+        "name": "Indexed library items"
+      },
+      "active_sessions": {
+        "name": "Active Plex sessions"
+      },
+      "last_launch": {
+        "name": "Last launch status"
+      }
+    }
+  },
+  "services": {
+    "command": {
+      "name": "AI voice/text command",
+      "description": "Parse a natural-language command via AI Task and start playback or handoff on the target Plex zone.",
+      "fields": {
+        "command_text": {
+          "name": "Command text",
+          "description": "Natural-language request in any language."
+        },
+        "zone": {
+          "name": "Target zone override",
+          "description": "Optional zone name overriding what was parsed from the command."
+        },
+        "ai_entity": {
+          "name": "AI Task entity override",
+          "description": "Optional ai_task.* entity to use instead of the default one."
+        },
+        "entry_id": {
+          "name": "Config entry ID",
+          "description": "Optional SmartPlex server entry ID."
+        }
+      }
+    },
+    "play": {
+      "name": "Play media on zone",
+      "description": "Directly play a movie, show, episode, music, playlist, or Plex rating_key without AI.",
+      "fields": {
+        "zone": { "name": "Target zone", "description": "Zone name, alias, or HA Area." },
+        "rating_key": { "name": "Plex Rating Key", "description": "Exact numeric Plex ratingKey." },
+        "media_type": { "name": "Media type", "description": "movie, show, music, or playlist." },
+        "title": { "name": "Title", "description": "Localized title." },
+        "original_title": { "name": "Original title", "description": "Original (English) title." },
+        "artist": { "name": "Artist", "description": "Music artist name." },
+        "album": { "name": "Album", "description": "Music album or audiobook title." },
+        "track": { "name": "Track / Song", "description": "Music song or track title (works with or without artist)." },
+        "similar_to": { "name": "Similar to", "description": "Play an unwatched movie or show similar to this title." },
+        "season": { "name": "Season", "description": "TV show season number." },
+        "episode": { "name": "Episode", "description": "TV show episode number." },
+        "actor": { "name": "Actor", "description": "Actor filter (single or comma-separated)." },
+        "actors": { "name": "Actors (together / AND)", "description": "List of actors who must all appear together in the same movie or show." },
+        "actors_original": { "name": "Actors (English names)", "description": "Optional English actor names in the same order for bilingual matching." },
+        "candidate_titles": { "name": "Candidate titles", "description": "Optional list of known collaboration or plot-matched titles to cross-check in the library." },
+        "director": { "name": "Director", "description": "Director filter." },
+        "genre": { "name": "Genre", "description": "Genre filter matched against server tags." },
+        "year": { "name": "Year", "description": "Release year filter." },
+        "library": { "name": "Library name", "description": "Restrict search to a specific Plex section." },
+        "sort_order": { "name": "Sort order", "description": "default, newest, oldest, top_rated, or random." },
+        "resume": { "name": "Resume", "description": "Continue from saved position / next unwatched episode." },
+        "shuffle": { "name": "Shuffle", "description": "Shuffle matched items." },
+        "offset_sec": { "name": "Start offset (sec)", "description": "Explicit starting position in seconds." }
+      }
+    },
+    "handoff": {
+      "name": "Transfer playback / Continue watching",
+      "description": "Transfer active Plex playback from another room (optionally turning off the previous TV) or resume Continue Watching.",
+      "fields": {
+        "target_zone": { "name": "Target zone", "description": "Zone where playback should continue." },
+        "source_zone": { "name": "Source zone", "description": "Explicit source room; auto-detected if omitted." },
+        "turn_off_source": { "name": "Turn off previous TV", "description": "Override whether to power off the previous zone's TV." },
+        "media_type": { "name": "Media type filter", "description": "Optional filter ('movie', 'show', or 'music') when continuing from On Deck." }
+      }
+    },
+    "control": {
+      "name": "Control playback & seek",
+      "description": "Pause, unpause, stop, restart, seek forward/backward by seconds, jump to timestamp, skip tracks, or toggle repeat/shuffle on an active Plex zone.",
+      "fields": {
+        "action": { "name": "Action", "description": "pause, resume_play, play_pause, stop, seek_relative, seek_to, restart, next, previous, set_repeat, or set_shuffle." },
+        "zone": { "name": "Target zone", "description": "Optional zone name; defaults to the currently active Plex room." },
+        "offset_sec": { "name": "Target position (sec)", "description": "Exact position in seconds for action='seek_to' (e.g. 1800 for 30:00)." },
+        "delta_sec": { "name": "Relative shift (sec)", "description": "Signed seconds shift for action='seek_relative' (e.g. 10 or -10)." },
+        "repeat": { "name": "Repeat mode", "description": "off, one, or all for action='set_repeat'." },
+        "shuffle": { "name": "Shuffle", "description": "True/False for action='set_shuffle'." },
+        "entry_id": { "name": "Config entry ID", "description": "Optional SmartPlex server entry ID." }
+      }
+    },
+    "spin_roulette": {
+      "name": "Spin Movie Roulette",
+      "description": "Pick filtered movies, render a numbered poster collage, and return VK & Telegram inline keyboards.",
+      "fields": {
+        "preset": { "name": "Roulette preset", "description": "Name or ID of a configured Roulette Preset subentry." },
+        "zone": { "name": "Target zone", "description": "Zone embedded into callback play buttons." },
+        "libraries": { "name": "Libraries override", "description": "List of Plex movie library names." },
+        "watch_filter": { "name": "Watch filter override", "description": "unwatched, in_progress, watched, or any." },
+        "include_genres": { "name": "Include genres", "description": "List of allowed genres." },
+        "exclude_genres": { "name": "Exclude genres", "description": "List of blacklisted genres." },
+        "min_rating": { "name": "Min rating", "description": "Minimum movie rating (0–10)." },
+        "year_from": { "name": "Year from", "description": "Minimum release year." },
+        "max_duration_min": { "name": "Max duration (min)", "description": "Maximum movie length in minutes (0 = unlimited)." },
+        "pick_count": { "name": "Number of picks", "description": "How many movies to suggest (1–6)." },
+        "collage_layout": { "name": "Collage layout", "description": "auto, grid_2x2, row, or single." },
+        "anti_repeat_days": { "name": "Anti-repeat window (days)", "description": "Do not suggest the same movie within N days." }
+      }
+    },
+    "refresh_cache": {
+      "name": "Refresh library cache",
+      "description": "Immediately re-index all Plex libraries, genres, and playlists.",
+      "fields": {
+        "entry_id": { "name": "Config entry ID", "description": "Optional SmartPlex server entry ID." }
+      }
+    }
+  },
+  "exceptions": {
+    "no_zones_configured": {
+      "message": "No media zones configured in SmartPlex."
+    }
+  }
+}
+
+

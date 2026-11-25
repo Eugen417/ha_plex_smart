@@ -1,0 +1,75 @@
+name: Validate
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+jobs:
+  hassfest:
+    name: Hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS Validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  tests:
+    name: Unit Tests & Translations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip Pillow pyyaml
+      - name: Compile Python sources
+        run: python -m py_compile custom_components/plex_smart/*.py tests/test_plex_smart.py
+      - name: Verify JSON & translations parity
+        run: |
+          python - << 'EOF'
+          import glob, json, yaml
+
+          base = "custom_components/plex_smart"
+          def flat(d, p=""):
+              out = set()
+              for k, v in d.items():
+                  nk = f"{p}.{k}" if p else k
+                  if isinstance(v, dict):
+                      out |= flat(v, nk)
+                  else:
+                      out.add(nk)
+              return out
+
+          s = json.load(open(f"{base}/strings.json", encoding="utf-8"))
+          en = json.load(open(f"{base}/translations/en.json", encoding="utf-8"))
+          ru = json.load(open(f"{base}/translations/ru.json", encoding="utf-8"))
+          assert flat(s) == flat(en) == flat(ru), "Translation key mismatch"
+
+          class _HALoader(yaml.SafeLoader):
+              pass
+
+          _HALoader.add_constructor("!input", lambda loader, node: loader.construct_scalar(node))
+
+          for path in [f"{base}/services.yaml"] + glob.glob("blueprints/**/*.yaml", recursive=True):
+              with open(path, encoding="utf-8") as fp:
+                  yaml.load(fp, Loader=_HALoader)
+          print(f"Validated {len(flat(s))} translation keys and all YAML files.")
+          EOF
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v

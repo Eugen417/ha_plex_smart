@@ -1,0 +1,112 @@
+alias: "🍿 SmartPlex: Evening Movie Roulette (Telegram)"
+description: >-
+  Sends a poster collage to Telegram Bot (Home Assistant 2026.9+) on schedule
+  or manual run and handles inline Play & Reroll callback buttons.
+mode: queued
+max: 10
+
+variables:
+  # Replace with your own notify.telegram_bot_* entity, preset, and media zone:
+  notify_entity: notify.telegram_bot_1234567890_123456789
+  default_preset: "Evening Movie"
+  default_zone: "Living Room"
+
+triggers:
+  - trigger: time
+    at: "20:00:00"
+    id: schedule
+  - trigger: event
+    event_type: telegram_callback
+    id: tg_callback
+
+conditions:
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: schedule
+      - condition: template
+        value_template: >-
+          {{ (trigger.event.data.get('data') | default('', true)).startswith('/plex_') }}
+
+actions:
+  - variables:
+      is_callback: "{{ trigger is defined and trigger.id == 'tg_callback' }}"
+      cb_data: "{{ (trigger.event.data.get('data') | default('', true)) if is_callback else '' }}"
+      parts: "{{ cb_data.split(':') if cb_data else [] }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_callback and cb_data.startswith('/plex_play:') }}"
+        sequence:
+          - action: telegram_bot.answer_callback_query
+            data:
+              config_entry_id: "{{ trigger.event.data.bot.config_entry_id }}"
+              callback_query_id: "{{ trigger.event.data.id }}"
+              message: "🎬 Starting movie on Plex..."
+              show_alert: false
+            continue_on_error: true
+          - action: plex_smart.play
+            data:
+              rating_key: "{{ parts[1] | int }}"
+              zone: "{{ parts[2] if (parts | length > 2 and parts[2]) else default_zone }}"
+            response_variable: play_res
+          - action: telegram_bot.send_message
+            data:
+              config_entry_id: "{{ trigger.event.data.bot.config_entry_id }}"
+              chat_id: "{{ trigger.event.data.chat_id }}"
+              message: "🎬 {{ play_res.message }}"
+              parse_mode: plain_text
+
+      - conditions:
+          - condition: template
+            value_template: "{{ (not is_callback) or cb_data.startswith('/plex_reroll:') }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ is_callback }}"
+            then:
+              - action: telegram_bot.answer_callback_query
+                data:
+                  config_entry_id: "{{ trigger.event.data.bot.config_entry_id }}"
+                  callback_query_id: "{{ trigger.event.data.id }}"
+                  message: "🔄 Picking another selection..."
+                  show_alert: false
+                continue_on_error: true
+          - action: plex_smart.spin_roulette
+            data:
+              preset: "{{ parts[1] if (is_callback and parts | length > 1 and parts[1]) else default_preset }}"
+              zone: "{{ parts[2] if (is_callback and parts | length > 2 and parts[2]) else default_zone }}"
+            response_variable: roulette
+          - if:
+              - condition: template
+                value_template: "{{ roulette.success }}"
+            then:
+              - if:
+                  - condition: template
+                    value_template: "{{ is_callback }}"
+                then:
+                  - action: telegram_bot.send_photo
+                    data:
+                      config_entry_id: "{{ trigger.event.data.bot.config_entry_id }}"
+                      chat_id: "{{ trigger.event.data.chat_id }}"
+                      url: "{{ roulette.image_url }}"
+                      verify_ssl: false
+                      caption: "{{ roulette.message }}"
+                      parse_mode: plain_text
+                      inline_keyboard: "{{ roulette.telegram_inline_keyboard }}"
+                else:
+                  - action: telegram_bot.send_photo
+                    data:
+                      entity_id: "{{ notify_entity }}"
+                      url: "{{ roulette.image_url }}"
+                      verify_ssl: false
+                      caption: "{{ roulette.message }}"
+                      parse_mode: plain_text
+                      inline_keyboard: "{{ roulette.telegram_inline_keyboard }}"
+            else:
+              - action: telegram_bot.send_message
+                data:
+                  entity_id: "{{ notify_entity }}"
+                  message: "⚠️ {{ roulette.message }}"
+                  parse_mode: plain_text

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="140" height="28" role="img" aria-label="RELEASE: V1.0.0">
+  <title>RELEASE: V1.0.0</title>
+  <g shape-rendering="crispEdges">
+    <rect width="74" height="28" fill="#555"/>
+    <rect x="74" width="66" height="28" fill="#E5A00D"/>
+  </g>
+  <g fill="#fff" text-anchor="middle" font-family="Verdana,Geneva,DejaVu Sans,sans-serif" text-rendering="geometricPrecision" font-size="100">
+    <text transform="scale(.1)" x="370" y="175" textLength="500" fill="#fff">RELEASE</text>
+    <text transform="scale(.1)" x="1070" y="175" textLength="420" fill="#fff" font-weight="bold">V1.0.0</text>
+  </g>
+</svg>
+
+
+

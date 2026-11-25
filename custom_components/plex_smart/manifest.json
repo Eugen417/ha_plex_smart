@@ -1,0 +1,12 @@
+{
+  "domain": "plex_smart",
+  "name": "SmartPlex",
+  "after_dependencies": ["plex", "http"],
+  "codeowners": ["@Eugen417"],
+  "config_flow": true,
+  "documentation": "https://github.com/Eugen417/ha_plex_smart",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/Eugen417/ha_plex_smart/issues",
+  "requirements": [],
+  "version": "1.0.0"
+}

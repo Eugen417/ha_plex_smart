@@ -1,0 +1,112 @@
+alias: "🍿 SmartPlex: Вечерняя Кинорулетка в ВК"
+description: >-
+  Отправляет коллаж фильмов в VK Notify по расписанию (или при ручном запуске)
+  и обрабатывает нажатия инлайн-кнопок запуска и обновления подборки.
+mode: queued
+max: 10
+
+variables:
+  # Замените на вашу сущность notify.vk_notify_*, пресет и медиа-зону:
+  notify_entity: notify.vk_notify_2000001234
+  default_preset: "Вечернее кино"
+  default_zone: "Зал"
+
+triggers:
+  - trigger: time
+    at: "20:00:00"
+    id: schedule
+  - trigger: event
+    event_type: vk_notify_callback
+    id: vk_callback
+
+conditions:
+  - condition: or
+    conditions:
+      - condition: trigger
+        id: schedule
+      - condition: template
+        value_template: >-
+          {% set raw_p = trigger.event.data.get('payload', {}) %}
+          {% set p = (raw_p | from_json) if (raw_p is string and raw_p.startswith('{')) else (raw_p if raw_p is mapping else {}) %}
+          {{ trigger.event.data.get('entity_id') == notify_entity
+             and p.get('cmd') in ['plex_play', 'plex_reroll'] }}
+
+actions:
+  - variables:
+      is_callback: "{{ trigger is defined and trigger.id == 'vk_callback' }}"
+      cb_payload: >-
+        {% if is_callback %}
+          {% set raw_p = trigger.event.data.get('payload', {}) %}
+          {{ (raw_p | from_json) if (raw_p is string and raw_p.startswith('{')) else (raw_p if raw_p is mapping else {}) }}
+        {% else %}
+          {{ {} }}
+        {% endif %}
+      cb_cmd: "{{ cb_payload.get('cmd', '') if cb_payload is mapping else '' }}"
+
+  - choose:
+      - conditions:
+          - condition: template
+            value_template: "{{ is_callback and cb_cmd == 'plex_play' }}"
+        sequence:
+          - action: vk_notify.answer_callback
+            target:
+              entity_id: "{{ notify_entity }}"
+            data:
+              event_id: "{{ trigger.event.data.event_id }}"
+              user_id: "{{ trigger.event.data.user_id }}"
+              message: "🎬 Запускаю фильм на Plex..."
+            continue_on_error: true
+          - action: plex_smart.play
+            data:
+              rating_key: "{{ cb_payload.get('key') | int }}"
+              zone: "{{ cb_payload.get('zone') or default_zone }}"
+            response_variable: play_res
+          - action: vk_notify.send_message
+            target:
+              entity_id: "{{ notify_entity }}"
+            data:
+              message: "🎬 {{ play_res.message }}"
+              parse_mode: plain
+
+      - conditions:
+          - condition: template
+            value_template: "{{ (not is_callback) or cb_cmd == 'plex_reroll' }}"
+        sequence:
+          - if:
+              - condition: template
+                value_template: "{{ is_callback }}"
+            then:
+              - action: vk_notify.answer_callback
+                target:
+                  entity_id: "{{ notify_entity }}"
+                data:
+                  event_id: "{{ trigger.event.data.event_id }}"
+                  user_id: "{{ trigger.event.data.user_id }}"
+                  message: "🔄 Подбираю другие варианты..."
+                continue_on_error: true
+          - action: plex_smart.spin_roulette
+            data:
+              preset: "{{ (cb_payload.get('preset') if is_callback else '') or default_preset }}"
+              zone: "{{ (cb_payload.get('zone') if is_callback else '') or default_zone }}"
+            response_variable: roulette
+          - if:
+              - condition: template
+                value_template: "{{ roulette.success }}"
+            then:
+              - action: vk_notify.send_photo
+                target:
+                  entity_id: "{{ notify_entity }}"
+                data:
+                  url: "{{ roulette.image_url }}"
+                  message: "{{ roulette.message }}"
+                  parse_mode: plain
+                  inline_keyboard: true
+                  auto_answer_callback: false
+                  keyboard: "{{ roulette.vk_keyboard }}"
+            else:
+              - action: vk_notify.send_message
+                target:
+                  entity_id: "{{ notify_entity }}"
+                data:
+                  message: "⚠️ {{ roulette.message }}"
+                  parse_mode: plain
