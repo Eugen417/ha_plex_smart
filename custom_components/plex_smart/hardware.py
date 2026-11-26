@@ -20,6 +20,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ACTIVE_PLAYBACK_STATES,
+    APPLE_TV_PLEX_APP_ID,
     CONF_APP_SOURCE,
     CONF_AREA_ID,
     CONF_ATV_AUTO_SELECT,
@@ -337,6 +338,59 @@ async def _async_ensure_display_ready(
         )
 
 
+def _apple_tv_app_status(st: Any, app_source: str = DEFAULT_APP_SOURCE) -> str:
+    """Classify Apple TV foreground app as 'plex', 'other', or 'unknown'.
+
+    Home Assistant's built-in `apple_tv` media_player exposes `app_id` and `app_name`
+    (never `source`), while custom/TV entities may expose `source`.
+    """
+    if st is None:
+        return "unknown"
+    attrs = getattr(st, "attributes", None) or {}
+    want = (app_source or DEFAULT_APP_SOURCE).strip().lower()
+    app_id = str(attrs.get("app_id") or "").strip().lower()
+    app_name = str(attrs.get("app_name") or "").strip()
+    cur_src = str(attrs.get("source") or "").strip()
+    src_list = attrs.get("source_list") or []
+
+    if (
+        app_id == APPLE_TV_PLEX_APP_ID
+        or ("plex" in app_id and app_id.startswith("com.plexapp"))
+        or (app_name and app_name.lower() == want)
+        or (cur_src and cur_src.lower() == want)
+    ):
+        return "plex"
+
+    if app_id or app_name:
+        return "other"
+    if cur_src and (
+        not src_list or any(str(s).strip().lower() == want for s in src_list)
+    ):
+        return "other"
+    return "unknown"
+
+
+def _zones_share_physical_display(
+    hass: HomeAssistant,
+    source_data: Mapping[str, Any],
+    target_data: Mapping[str, Any],
+) -> bool:
+    """Return True when source and target zones share the same physical TV/projector/AVR."""
+    s_hw_dev, s_hw_ent, _ = resolve_zone_hardware(hass, source_data)
+    s_disp_dev, s_disp_ent, _ = resolve_display_hardware(hass, source_data)
+    t_hw_dev, t_hw_ent, _ = resolve_zone_hardware(hass, target_data)
+    t_disp_dev, t_disp_ent, _ = resolve_display_hardware(hass, target_data)
+
+    src_devs = {d for d in (s_hw_dev, s_disp_dev) if d}
+    tgt_devs = {d for d in (t_hw_dev, t_disp_dev) if d}
+    if src_devs & tgt_devs:
+        return True
+
+    src_ents = {e for e in (s_hw_ent, s_disp_ent) if e}
+    tgt_ents = {e for e in (t_hw_ent, t_disp_ent) if e}
+    return bool(src_ents & tgt_ents)
+
+
 def is_zone_hot_ready(hass: HomeAssistant, zone_data: Mapping[str, Any]) -> bool:
     """Return True only when BOTH the Plex client AND physical TV are awake & on Plex."""
     profile = str(zone_data.get(CONF_POWER_PROFILE) or PROFILE_STANDARD_MEDIA_PLAYER)
@@ -344,10 +398,13 @@ def is_zone_hot_ready(hass: HomeAssistant, zone_data: Mapping[str, Any]) -> bool
     _, hw_entity, _ = resolve_zone_hardware(hass, zone_data)
 
     # On Apple TV (Plex 2026.20+), we always play via tvOS Deep Link on hw_entity,
-    # so readiness depends on Apple TV itself being awake, not the sleeping Plex port 32500.
+    # so readiness depends on Apple TV itself being awake (and not sitting on another app).
     if profile == PROFILE_APPLE_TV and hw_entity:
         hw_st = hass.states.get(hw_entity)
-        return hw_st is not None and hw_st.state not in _HW_OFF_STATES
+        if hw_st is None or hw_st.state in _HW_OFF_STATES:
+            return False
+        app_source = str(zone_data.get(CONF_APP_SOURCE) or DEFAULT_APP_SOURCE).strip()
+        return _apple_tv_app_status(hw_st, app_source) != "other"
 
     if not is_plex_client_ready(hass, plex_client):
         return False
@@ -501,7 +558,10 @@ def build_plex_media_args(
 
 
 async def async_power_off_zone(
-    hass: HomeAssistant, zone_data: Mapping[str, Any]
+    hass: HomeAssistant,
+    zone_data: Mapping[str, Any],
+    *,
+    keep_shared_display: bool = False,
 ) -> None:
     """Stop Plex playback (bounded so proxy never stalls 30s) and turn off the TV/player."""
     plex_client = resolve_plex_client(hass, zone_data)
@@ -540,6 +600,35 @@ async def async_power_off_zone(
 
     profile = str(zone_data.get(CONF_POWER_PROFILE) or PROFILE_STANDARD_MEDIA_PLAYER)
     hw_device_id, hw_entity, remote_entity = resolve_zone_hardware(hass, zone_data)
+
+    if keep_shared_display:
+        # Target zone shares the same physical TV screen (e.g. LG built-in Plex <-> Apple TV on same LG).
+        # Never call turn_off on either the TV or Apple TV (CEC Standby would turn off the shared TV!).
+        if profile == PROFILE_APPLE_TV:
+            if hw_entity:
+                try:
+                    await hass.services.async_call(
+                        "media_player",
+                        "media_stop",
+                        {"entity_id": hw_entity},
+                        blocking=True,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+            if remote_entity:
+                try:
+                    await hass.services.async_call(
+                        "remote",
+                        "send_command",
+                        {"entity_id": remote_entity, "command": "menu"},
+                        blocking=True,
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+        _LOGGER.debug(
+            "SmartPlex handoff shares physical display; stopped source player without powering off TV"
+        )
+        return
 
     if profile == PROFILE_CUSTOM_ACTIONS and zone_data.get(CONF_CUSTOM_OFF_ACTIONS):
         await _run_custom_actions(
@@ -1073,7 +1162,25 @@ async def async_play_apple_tv_deeplink(
     card_delay = _zone_timing(zone_data, CONF_WARM_APP_DELAY)
     app_source = str(zone_data.get(CONF_APP_SOURCE) or DEFAULT_APP_SOURCE).strip()
 
-    # 4. Send deep link; verify Plex actually opened and retry once if pyatv dropped it on wake
+    async def _wait_for_plex_foreground(max_wait: float) -> str:
+        cur = _apple_tv_app_status(hass.states.get(hw_entity), app_source)
+        if cur != "other" or max_wait <= 0:
+            return cur
+        fg_ev = asyncio.Event()
+
+        @callback
+        def _on_hw_fg(event: Event) -> None:
+            if _apple_tv_app_status(event.data.get("new_state"), app_source) == "plex":
+                fg_ev.set()
+
+        unsub_fg = async_track_state_change_event(hass, [hw_entity], _on_hw_fg)
+        try:
+            await _async_wait_event_or_delay(fg_ev, max_wait)
+        finally:
+            unsub_fg()
+        return _apple_tv_app_status(hass.states.get(hw_entity), app_source)
+
+    # 4. Send deep link; verify Plex actually opened and fall back to select_source('Plex') + retry
     for dl_attempt in range(2):
         try:
             await hass.services.async_call(
@@ -1090,30 +1197,56 @@ async def async_play_apple_tv_deeplink(
             safe = redact_sensitive_text(err)
             _LOGGER.warning("SmartPlex Apple TV deep link failed: %s", safe)
             if dl_attempt == 0:
-                await asyncio.sleep(2.0)
+                await _async_launch_plex_app(hass, zone_data)
+                if card_delay > 0:
+                    await asyncio.sleep(2.0)
                 continue
             return False, dl_attempt, safe
 
         if card_delay > 0:
             await asyncio.sleep(card_delay)
 
-        st_after = hass.states.get(hw_entity)
-        cur_src = str(st_after.attributes.get("source") or "").strip() if st_after else ""
-        src_list = (st_after.attributes.get("source_list") or []) if st_after else []
-        if (
-            dl_attempt == 0
-            and cur_src
-            and src_list
-            and app_source in src_list
-            and cur_src.lower() != app_source.lower()
-        ):
-            _LOGGER.debug(
-                "Apple TV did not switch to Plex yet (source=%s), retrying deep link",
-                cur_src,
+        fg_wait = max(2.5, card_delay) if card_delay > 0 else 0.0
+        fg_status = await _wait_for_plex_foreground(fg_wait)
+        if dl_attempt == 0 and fg_status == "other":
+            st_after = hass.states.get(hw_entity)
+            cur_app = (
+                (
+                    st_after.attributes.get("app_name")
+                    or st_after.attributes.get("app_id")
+                    or st_after.attributes.get("source")
+                )
+                if st_after
+                else ""
             )
-            await asyncio.sleep(2.0)
+            _LOGGER.debug(
+                "Apple TV did not switch to Plex yet (active=%s); launching Plex app and retrying deep link",
+                cur_app,
+            )
+            await _async_launch_plex_app(hass, zone_data)
+            if card_delay > 0:
+                await _wait_for_plex_foreground(max(2.5, card_delay))
+                await asyncio.sleep(min(1.5, card_delay))
             continue
         break
+
+    if _apple_tv_app_status(hass.states.get(hw_entity), app_source) == "other":
+        st_fin = hass.states.get(hw_entity)
+        cur_app = (
+            (
+                st_fin.attributes.get("app_name")
+                or st_fin.attributes.get("app_id")
+                or st_fin.attributes.get("source")
+            )
+            if st_fin
+            else "unknown"
+        )
+        msg = (
+            f"Apple TV remained on '{cur_app}' instead of '{app_source}'; "
+            "aborted auto-select to avoid opening another app."
+        )
+        _LOGGER.warning("SmartPlex: %s", msg)
+        return False, 1, msg
 
     auto_select = bool(zone_data.get(CONF_ATV_AUTO_SELECT, DEFAULT_ATV_AUTO_SELECT))
     if not auto_select or not remote_entity:
@@ -1127,7 +1260,13 @@ async def async_play_apple_tv_deeplink(
                     return True
         return False
 
+    def _is_atv_paused() -> bool:
+        st = hass.states.get(hw_entity)
+        return st is not None and st.state == "paused"
+
     if not _is_atv_playing():
+        # Single 'select' clicks Play (0:00) or Resume (at synced viewOffset) on the Plex tvOS card.
+        # NEVER send a second 'select' inside the opened tvOS video player, as 'select' toggles Pause!
         try:
             await hass.services.async_call(
                 "remote",
@@ -1138,33 +1277,37 @@ async def async_play_apple_tv_deeplink(
         except Exception as err:  # noqa: BLE001
             _LOGGER.debug("Apple TV select command warning: %s", redact_sensitive_text(err))
 
-        # If resume=True, Plex may display a Resume/Start-from-beginning popup on first select
-        if resume and not _is_atv_playing():
-            confirm_event = asyncio.Event()
+        # Safety net: if stream ever lands in explicit 'paused' state (never while 'idle'/buffering!),
+        # issue idempotent media_play which unpauses without ever pausing active video.
+        if card_delay > 0 and not _is_atv_playing():
+            state_ev = asyncio.Event()
             watch_ids = [eid for eid in (hw_entity, plex_client) if eid]
 
             @callback
-            def _on_playing(event: Event) -> None:
+            def _on_atv_state(event: Event) -> None:
                 ns = event.data.get("new_state")
-                if ns is not None and ns.state == "playing":
-                    confirm_event.set()
+                if ns is not None and ns.state in ("playing", "paused"):
+                    state_ev.set()
 
-            unsub = async_track_state_change_event(hass, watch_ids, _on_playing)
+            unsub_st = async_track_state_change_event(hass, watch_ids, _on_atv_state)
             try:
-                await asyncio.wait_for(confirm_event.wait(), timeout=2.0)
-            except TimeoutError:
-                if not _is_atv_playing():
-                    try:
-                        await hass.services.async_call(
-                            "remote",
-                            "send_command",
-                            {"entity_id": remote_entity, "command": "select"},
-                            blocking=True,
-                        )
-                    except Exception:  # noqa: BLE001
-                        pass
+                await _async_wait_event_or_delay(state_ev, 3.5)
             finally:
-                unsub()
+                unsub_st()
+
+            if _is_atv_paused() and not _is_atv_playing():
+                try:
+                    await hass.services.async_call(
+                        "media_player",
+                        "media_play",
+                        {"entity_id": hw_entity},
+                        blocking=True,
+                    )
+                except Exception as err:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "Apple TV media_play unpause warning: %s",
+                        redact_sensitive_text(err),
+                    )
 
     return True, 0, ""
 
@@ -2802,14 +2945,25 @@ async def async_handoff_or_resume(
             len(exclude_mids),
         )
 
+        shared_display = (
+            _zones_share_physical_display(hass, matched_source.data, target_data)
+            if matched_source is not None
+            else False
+        )
         power_off_task: asyncio.Task[None] | None = None
-        if matched_source is not None and should_turn_off:
-            power_off_task = asyncio.create_task(
-                async_power_off_zone(hass, matched_source.data)
-            )
-            power_off_task.add_done_callback(
-                lambda t: t.exception() if not t.cancelled() else None
-            )
+        if matched_source is not None and (should_turn_off or shared_display):
+            if shared_display:
+                # Stop old player BEFORE switching shared TV HDMI input, without turning TV off!
+                await async_power_off_zone(
+                    hass, matched_source.data, keep_shared_display=True
+                )
+            elif should_turn_off:
+                power_off_task = asyncio.create_task(
+                    async_power_off_zone(hass, matched_source.data)
+                )
+                power_off_task.add_done_callback(
+                    lambda t: t.exception() if not t.cancelled() else None
+                )
 
         start_phase, boot_sec = await active_boot
 
@@ -2829,7 +2983,7 @@ async def async_handoff_or_resume(
         is_ru = (getattr(hass.config, "language", None) or "en").lower().startswith("ru")
         off_note = (
             (f" ({source_name} выключен)" if is_ru else f" (turned off {source_name})")
-            if (matched_source and should_turn_off)
+            if (matched_source and should_turn_off and not shared_display)
             else ""
         )
         pos_str = f"{offset_sec // 60}:{offset_sec % 60:02d}"
@@ -2929,14 +3083,24 @@ async def async_handoff_or_resume(
         [z for z in (fallback_source, *source_candidates) if z is not None],
     )
 
+    fb_shared_display = (
+        _zones_share_physical_display(hass, fallback_source.data, target_data)
+        if fallback_source is not None
+        else False
+    )
     fb_power_off_task: asyncio.Task[None] | None = None
-    if fallback_source is not None and should_off_fb:
-        fb_power_off_task = asyncio.create_task(
-            async_power_off_zone(hass, fallback_source.data)
-        )
-        fb_power_off_task.add_done_callback(
-            lambda t: t.exception() if not t.cancelled() else None
-        )
+    if fallback_source is not None and (should_off_fb or fb_shared_display):
+        if fb_shared_display:
+            await async_power_off_zone(
+                hass, fallback_source.data, keep_shared_display=True
+            )
+        elif should_off_fb:
+            fb_power_off_task = asyncio.create_task(
+                async_power_off_zone(hass, fallback_source.data)
+            )
+            fb_power_off_task.add_done_callback(
+                lambda t: t.exception() if not t.cancelled() else None
+            )
 
     on_deck = await api.async_get_continue_watching()
     if media_type and on_deck:
@@ -2997,7 +3161,7 @@ async def async_handoff_or_resume(
             src_disp = fb_source_name or last_launch.zone_name
             off_note = (
                 (f" ({src_disp} выключен)" if is_ru else f" (turned off {src_disp})")
-                if (fallback_source and should_off_fb)
+                if (fallback_source and should_off_fb and not fb_shared_display)
                 else ""
             )
             pos_str = f"{ll_offset // 60}:{ll_offset % 60:02d}"

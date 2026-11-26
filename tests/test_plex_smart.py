@@ -3238,6 +3238,205 @@ class TestV1020ReverseHandoffAndControl(unittest.IsolatedAsyncioTestCase):
             er_mod.async_get = orig_get
             er_mod.async_entries_for_config_entry = orig_entries_for_ce
 
+    async def test_v102_apple_tv_resume_single_select_and_speedtest_guard(
+        self,
+    ) -> None:
+        """Resume on Apple TV must press 'select' ONLY ONCE (never pausing stream) and never click Speedtest."""
+        hass = _FakeHass(
+            {
+                "media_player.apple_tv_4k": _FakeState(
+                    "idle",
+                    {"app_id": const.APPLE_TV_PLEX_APP_ID, "app_name": "Plex"},
+                ),
+                "remote.apple_tv_4k": _FakeState("on"),
+                "media_player.plex_atv": _FakeState("unavailable"),
+            }
+        )
+        zone = {
+            const.CONF_PLEX_CLIENT: "media_player.plex_atv",
+            const.CONF_POWER_PROFILE: const.PROFILE_APPLE_TV,
+            const.CONF_HARDWARE_ENTITY: "media_player.apple_tv_4k",
+            const.CONF_REMOTE_ENTITY: "remote.apple_tv_4k",
+            const.CONF_WARM_APP_DELAY: 0.01,
+            const.CONF_ATV_AUTO_SELECT: True,
+        }
+        entry_data = {const.CONF_SERVER_ID: "srv1"}
+
+        class _ProgApi:
+            async def async_set_playback_progress(self, rk: int, ms: int) -> bool:
+                return True
+
+        orig_wait = hardware._async_wait_event_or_delay
+        hardware._async_wait_event_or_delay = lambda ev, _d: asyncio.sleep(
+            0.005, result=ev.is_set()
+        )
+        try:
+            ok, _, err = await hardware.async_play_on_zone_with_retry(
+                hass,
+                entry_data,
+                zone,
+                {"plex_key": 7797, "resume": 1, "offset": 1058},
+                "movie",
+                api=_ProgApi(),
+            )
+            self.assertTrue(ok)
+            self.assertEqual(err, "")
+            select_calls = [
+                c
+                for c in hass.calls
+                if c
+                == (
+                    "remote",
+                    "send_command",
+                    {"entity_id": "remote.apple_tv_4k", "command": "select"},
+                )
+            ]
+            self.assertEqual(len(select_calls), 1)
+
+            hass.calls.clear()
+            hass.set_state(
+                "media_player.apple_tv_4k",
+                "idle",
+                {"app_id": "com.ookla.speedtest", "app_name": "Speedtest"},
+            )
+            ok_bad, _, err_bad = await hardware.async_play_on_zone_with_retry(
+                hass,
+                entry_data,
+                zone,
+                {"plex_key": 7797, "resume": 1, "offset": 1058},
+                "movie",
+                api=_ProgApi(),
+            )
+            self.assertFalse(ok_bad)
+            self.assertIn("Speedtest", err_bad)
+            self.assertIn(
+                (
+                    "media_player",
+                    "select_source",
+                    {"entity_id": "media_player.apple_tv_4k", "source": "Plex"},
+                ),
+                hass.calls,
+            )
+            bad_selects = [
+                c
+                for c in hass.calls
+                if c[0] == "remote" and c[2].get("command") == "select"
+            ]
+            self.assertEqual(bad_selects, [])
+        finally:
+            hardware._async_wait_event_or_delay = orig_wait
+
+    async def test_v102_shared_display_handoff_lg_and_apple_tv_keeps_lg_on(
+        self,
+    ) -> None:
+        """Switching between LG built-in Plex and Apple TV sharing the same LG screen must NOT turn off LG."""
+        hass = _FakeHass(
+            {
+                "media_player.plex_lg": _FakeState(
+                    "playing", {"friendly_name": "LG OLED77", "media_position": 1058}
+                ),
+                "media_player.lg_tv": _FakeState(
+                    "on",
+                    {"source": "Plex", "source_list": ["Plex", "Apple OTT"]},
+                ),
+                "media_player.apple_tv_4k": _FakeState(
+                    "idle",
+                    {"app_id": const.APPLE_TV_PLEX_APP_ID, "app_name": "Plex"},
+                ),
+                "remote.apple_tv_4k": _FakeState("on"),
+                "media_player.plex_atv": _FakeState("unavailable"),
+            }
+        )
+        z_lg = types.SimpleNamespace(
+            subentry_id="z_lg",
+            subentry_type=const.SUBENTRY_TYPE_ZONE,
+            title="Зал",
+            data={
+                const.CONF_ZONE_NAME: "Зал",
+                const.CONF_PLEX_CLIENT: "media_player.plex_lg",
+                const.CONF_HARDWARE_DEVICE_ID: "dev_lg77",
+                const.CONF_HARDWARE_ENTITY: "media_player.lg_tv",
+                const.CONF_POWER_PROFILE: const.PROFILE_LG_WEBOS,
+                const.CONF_TURN_OFF_ON_HANDOFF: True,
+            },
+        )
+        z_atv = types.SimpleNamespace(
+            subentry_id="z_atv",
+            subentry_type=const.SUBENTRY_TYPE_ZONE,
+            title="Apple",
+            data={
+                const.CONF_ZONE_NAME: "Apple",
+                const.CONF_PLEX_CLIENT: "media_player.plex_atv",
+                const.CONF_HARDWARE_DEVICE_ID: "dev_atv4k",
+                const.CONF_HARDWARE_ENTITY: "media_player.apple_tv_4k",
+                const.CONF_REMOTE_ENTITY: "remote.apple_tv_4k",
+                const.CONF_DISPLAY_DEVICE_ID: "dev_lg77",
+                const.CONF_DISPLAY_ENTITY: "media_player.lg_tv",
+                const.CONF_DISPLAY_SOURCE: "Apple OTT",
+                const.CONF_POWER_PROFILE: const.PROFILE_APPLE_TV,
+                const.CONF_WARM_APP_DELAY: 0,
+                const.CONF_ATV_AUTO_SELECT: True,
+                const.CONF_TURN_OFF_ON_HANDOFF: True,
+            },
+        )
+
+        class _HandoffApi:
+            async def async_get_active_sessions(self):
+                return [
+                    models.PlexActiveSession(
+                        session_key="1",
+                        rating_key=7797,
+                        media_type="movie",
+                        title="Телохранитель жены киллера",
+                        display_title="Телохранитель жены киллера",
+                        view_offset_ms=1058_000,
+                        player_machine_id="lg_mid",
+                        player_title="LG OLED77",
+                        player_state="playing",
+                    )
+                ]
+
+            async def async_set_playback_progress(self, rk: int, ms: int) -> bool:
+                return True
+
+        entry = types.SimpleNamespace(
+            entry_id="e1",
+            data={const.CONF_SERVER_ID: "srv1"},
+            subentries={"z_lg": z_lg, "z_atv": z_atv},
+            runtime_data=types.SimpleNamespace(
+                api=_HandoffApi(), saved_resume_offsets={}, playback_anchors={}
+            ),
+        )
+        res = await hardware.async_handoff_or_resume(
+            hass, entry, target_zone=z_atv, source_zone=z_lg
+        )
+        self.assertTrue(res.success)
+        self.assertIn(
+            ("media_player", "media_stop", {"entity_id": "media_player.plex_lg"}),
+            hass.calls,
+        )
+        turn_offs = [c for c in hass.calls if c[1] == "turn_off"]
+        self.assertEqual(turn_offs, [])
+        self.assertIn(
+            (
+                "media_player",
+                "select_source",
+                {"device_id": "dev_lg77", "source": "Apple OTT"},
+            ),
+            hass.calls,
+        )
+        selects = [
+            c
+            for c in hass.calls
+            if c
+            == (
+                "remote",
+                "send_command",
+                {"entity_id": "remote.apple_tv_4k", "command": "select"},
+            )
+        ]
+        self.assertEqual(len(selects), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
