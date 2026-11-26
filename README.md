@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/hacs/integration"><img alt="HACS" src="badges/hacs.svg" /></a>
-  <img alt="Release v1.0.0" src="badges/release.svg" />
+  <img alt="Release v1.0.1" src="badges/release.svg" />
   <a href="https://www.home-assistant.io/"><img alt="Home Assistant 2026.9+" src="badges/home_assistant.svg" /></a>
   <a href="https://developer.plex.tv/pms/"><img alt="Plex OpenAPI v1.2.3" src="badges/plex_api.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="badges/license.svg" /></a>
@@ -26,7 +26,7 @@
 Перед установкой **SmartPlex** убедитесь, что у вас есть:
 
 1. **Сервер Plex Media Server** (`v1.41+ / v1.43+`) в локальной сети с вашими библиотеками фильмов, сериалов или музыки.
-2. **Установленная и настроенная штатная интеграция [Plex Media Server](https://www.home-assistant.io/integrations/plex/) в Home Assistant** — **обязательна**! Именно она создаёт в HA клиентские плееры `media_player.plex_*`, держит живой WebSocket-канал с сервером, строит очереди `PlayQueue`, а также отдаёт SmartPlex в 1 клик локальный URL, `X-Plex-Token` и кнопку `button.*_scan_clients`.
+2. **Установленная и настроенная штатная интеграция [Plex Media Server](https://www.home-assistant.io/integrations/plex/) в Home Assistant** — **обязательна**! Именно она создаёт в HA клиентские плееры `media_player.plex_*`, держит живой WebSocket-канал с сервером, строит очереди `PlayQueue`, а также позволяет SmartPlex автоматически подставить адрес сервера и кнопку `button.*_scan_clients` при настройке (свой `X-Plex-Token` вы вводите отдельно).
 3. **Интеграция вашего телевизора или приставки в Home Assistant** (*LG webOS TV*, *Apple TV*, *Samsung Smart TV*, *Android TV Remote* и т.д.) — нужна для физического пробуждения выключенного экрана (Wake-on-LAN / Companion), автозапуска приложения Plex, переключения HDMI-входа и выключения предыдущего ТВ при переносе просмотра.
 4. **ИИ-агент (по желанию, зависит от сценария):**
    * **Для голосового управления и чата Assist:** любой разговорный агент с поддержкой инструментов (**Google Gemini**, **[Yandex AI Studio](https://github.com/Eugen417/HA-Yandex-generative_ai_conversation)**, **[Sber GigaChat AI](https://github.com/Eugen417/HA-GigaChat-generative_ai_conversation)**, **OpenAI**, **Ollama**).
@@ -69,7 +69,7 @@ SmartPlex не привязан к конкретному провайдеру �
 
 ## ✨ Главные возможности
 
-* ⚡ **Подключение в 1 клик:** автоматически находит установленную штатную интеграцию `plex` и подтягивает локальный URL, `X-Plex-Token` и кнопку `button.*_scan_clients` (доступен и ручной ввод).
+* ⚡ **Быстрая настройка сервера:** находит существующие серверы из штатной интеграции `plex` и подставляет локальный URL, настройку SSL и кнопку `button.*_scan_clients` (также доступен полностью ручной ввод; ваш `X-Plex-Token` вводится вами напрямую и никогда не копируется из других интеграций).
 * 📺 **Медиа-зоны (`ConfigSubentry`) под любое железо:**
   * **Профили ТВ и приставок:** **LG webOS** *(гонка `play_media` с WebSocket против 30-секундного `ReadTimeout` прокси `plexapi` и ложных перезапусков)*, **Apple TV** *(обход закрытого порта `32500` в Plex tvOS `2026.20+` через Deep Link `plex://libraries/.../unmatched/...`, синхронизацию `/:/timeline` + `/:/unscrobble` и автонажатие `select`)*, **Samsung Tizen** *(Wake-on-LAN через `media_player`, запуск по App ID `3201512006963` и сопровождение ~30-секундной загрузки плеера)*, **Android TV / Google TV / Shield**, **Стандартный медиаплеер** и **Пользовательские действия (`ActionSelector`)**.
   * **Главное устройство (`is_default`) + Связанный экран:** приоритет основного ТВ при нескольких плеерах в одной комнате, параллельное включение связанного ТВ/проектора/ресивера (`display_device_id` + `display_source`) и **3 фазы старта** (❄️ *Холодный* / 🌤 *Тёплый* / 🔥 *Горячий*).
@@ -82,7 +82,7 @@ SmartPlex не привязан к конкретному провайдеру �
   * Нативный поиск похожих фильмов через `GET /library/metadata/{id}/similar` (*«включи что-нибудь похожее на Джентльмены»*).
 * 🔄 **Бесшовный двусторонний перенос между комнатами (`plex_smart.handoff`):** скажите *«Перенеси кино из зала в спальню»* или *«Верни фильм обратно из спальни в зал»* — интеграция снимет точную позицию до выключения, **погасит предыдущий ТВ**, разбудит экран в целевой комнате и продолжит с той же секунды (с откатом −5 сек и строгой изоляцией сессий по `machine_id`, чтобы призрачная сессия погашенного ТВ не мешала перемотке).
 * ⏯ **Аппаратное управление воспроизведением и перемоткой (`plex_smart.control`):** *пауза*, умное *«продолжи»* (мгновенно снимает паузу в активной комнате без перезапуска потока с `0:00`), *стоп*, *перемотка вперёд/назад на 5–10 сек / N мин*, *переход на точную минуту/таймкод* (*«перемотай на 30 минуту»*), *рестарт с начала (`0:00`)*, *следующий/предыдущий трек или серия*, *повтор (`off`/`one`/`all`)* и *микс (`shuffle`)*. Подробный список всех фраз и YAML-примеров — в **[📖 Справочнике команд (`docs/COMMANDS.md`)](docs/COMMANDS.md)**.
-* 🎲 **Настраиваемая Кинорулетка (`plex_smart.spin_roulette`):** склеивает нумерованный коллаж постеров (`Pillow`) без раскрытия токена Plex и без необходимости прописывать `allowlist_external_dirs` (`roulette.image_url`), возвращает нативные инлайн-клавиатуры для **VK Notify** (`vk_keyboard`) и **Telegram Bot** (`telegram_inline_keyboard`) и поставляется с готовыми **HA Blueprints** в [`blueprints/automation/Eugen417/`](blueprints/automation/Eugen417/) и примерами в [`examples/`](examples/README.md).
+* 🎲 **Настраиваемая Кинорулетка (`plex_smart.spin_roulette`):** склеивает нумерованный коллаж постеров (`Pillow`) в памяти и отдаёт его по временной подписанной ссылке (`async_sign_path`, без записи файлов в `/config/www`, без раскрытия токена Plex и без правок `allowlist_external_dirs`), возвращает нативные инлайн-клавиатуры для **VK Notify** (`vk_keyboard`) и **Telegram Bot** (`telegram_inline_keyboard`) и поставляется с готовыми **HA Blueprints** в [`blueprints/automation/Eugen417/`](blueprints/automation/Eugen417/) и примерами в [`examples/`](examples/README.md).
 * 🔒 **Приватность и мультиязычность:** ответы на языке системы (RU / EN) с необязательным настраиваемым обращением (`user_title`), полное редактирование токенов, локальных IP и доменов `*.plex.direct` в логах и диагностике (`privacy.py`, `diagnostics.py`).
 
 ---
@@ -135,7 +135,8 @@ SmartPlex не привязан к конкретному провайдеру �
 1. Скопируйте папку `custom_components/plex_smart` в `/config/custom_components/` (или установите через **HACS / Marketplace**) и **перезапустите Home Assistant**.
 2. Убедитесь, что в Home Assistant уже добавлена штатная интеграция **Plex Media Server** и интеграции ваших телевизоров / приставок (*LG webOS*, *Apple TV*, *Samsung*, *Android TV*).
 3. Перейдите в **Настройки → Устройства и службы → Добавить интеграцию → SmartPlex**:
-   * выберите найденный сервер Plex из списка (URL, `X-Plex-Token` и кнопка `scan_clients` подставятся автоматически);
+   * выберите найденный сервер Plex из списка (URL, настройка SSL и кнопка `scan_clients` подставятся автоматически) или выберите ручной ввод;
+   * введите ваш токен `X-Plex-Token` *(Plex Web → (⋯) у любого фильма → Информация → Показать XML → `X-Plex-Token` в конце URL)*;
    * при необходимости укажите обращение в ответах (*например, «Сэр» — или оставьте пустым для нейтральных ответов*).
 4. В карточке **SmartPlex** добавьте **Медиа-зоны** (например, *Зал*, *Спальня*, *Apple*) и при желании **Пресеты Кинорулетки**:
    * выберите область HA, клиент `media_player.plex_*`, профиль питания и физическое устройство ТВ/приставки;

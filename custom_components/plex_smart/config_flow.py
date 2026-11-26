@@ -135,15 +135,14 @@ def _discover_default_ai_entity(hass: HomeAssistant) -> str:
 
 
 def _discover_ha_plex_servers(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
-    """Inspect existing built-in 'plex' config entries to offer 1-click setup."""
+    """Inspect existing built-in 'plex' entries to prefill URL, SSL, and scan button (never tokens)."""
     discovered: dict[str, dict[str, Any]] = {}
     ent_reg = er.async_get(hass)
 
     for plex_entry in hass.config_entries.async_entries("plex"):
         cfg = plex_entry.data.get("server_config") or plex_entry.data
         url = str(cfg.get("url") or "").strip()
-        token = str(cfg.get("token") or "").strip()
-        if not url or not token:
+        if not url:
             continue
         verify_ssl = bool(cfg.get("verify_ssl", DEFAULT_VERIFY_SSL))
         server_name = str(
@@ -159,7 +158,6 @@ def _discover_ha_plex_servers(hass: HomeAssistant) -> dict[str, dict[str, Any]]:
         discovered[plex_entry.entry_id] = {
             "label": f"{server_name} ({url})",
             CONF_URL: url,
-            CONF_TOKEN: token,
             CONF_VERIFY_SSL: verify_ssl,
             CONF_SCAN_BUTTON: scan_btn,
         }
@@ -267,30 +265,36 @@ class SmartPlexConfigFlow(ConfigFlow, domain=DOMAIN):
                     },
                 )
 
-        def_url = self._prefill.get(CONF_URL, "")
-        def_tok = self._prefill.get(CONF_TOKEN, "")
-        def_ssl = self._prefill.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
-        def_scan = self._prefill.get(CONF_SCAN_BUTTON, "")
-        def_ai = _discover_default_ai_entity(self.hass)
+        src = user_input if user_input is not None else self._prefill
+        def_url = src.get(CONF_URL, "")
+        def_ssl = src.get(CONF_VERIFY_SSL, DEFAULT_VERIFY_SSL)
+        def_scan = src.get(CONF_SCAN_BUTTON, "")
+        def_ai = (
+            src.get(CONF_AI_ENTITY, "")
+            if user_input is not None
+            else _discover_default_ai_entity(self.hass)
+        )
+        def_cache = int(src.get(CONF_CACHE_INTERVAL, DEFAULT_CACHE_INTERVAL))
+        def_title = str(src.get(CONF_USER_TITLE, DEFAULT_USER_TITLE))
 
         schema_dict: dict[Any, Any] = {
             vol.Required(CONF_URL, default=def_url): str,
-            vol.Required(CONF_TOKEN, default=def_tok): PASSWORD_SELECTOR,
+            vol.Required(CONF_TOKEN): PASSWORD_SELECTOR,
             vol.Optional(CONF_VERIFY_SSL, default=def_ssl): BooleanSelector(),
             _opt_key(CONF_SCAN_BUTTON, str(def_scan or "")): EntitySelector(
                 EntitySelectorConfig(domain="button")
             ),
-            _opt_key(CONF_AI_ENTITY, def_ai): EntitySelector(
+            _opt_key(CONF_AI_ENTITY, str(def_ai or "")): EntitySelector(
                 EntitySelectorConfig(domain="ai_task")
             ),
             vol.Optional(
-                CONF_CACHE_INTERVAL, default=DEFAULT_CACHE_INTERVAL
+                CONF_CACHE_INTERVAL, default=def_cache
             ): NumberSelector(
                 NumberSelectorConfig(
                     min=5, max=1440, step=5, mode=NumberSelectorMode.BOX
                 )
             ),
-            vol.Optional(CONF_USER_TITLE, default=DEFAULT_USER_TITLE): str,
+            vol.Optional(CONF_USER_TITLE, default=def_title): str,
         }
         return self.async_show_form(
             step_id="manual",

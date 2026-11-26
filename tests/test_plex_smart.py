@@ -30,14 +30,21 @@ def _install_ha_stubs() -> None:
     ha_core.SupportsResponse = types.SimpleNamespace(OPTIONAL="optional", ONLY="only")
     ha_core.callback = lambda fn: fn
 
+    class _FakeConfigFlow:
+        def __init_subclass__(cls, domain=None, **kwargs):
+            super().__init_subclass__(**kwargs)
+
     ha_ce = types.ModuleType("homeassistant.config_entries")
     ha_ce.ConfigEntry = object
     ha_ce.ConfigSubentry = object
     ha_ce.ConfigEntryState = types.SimpleNamespace(LOADED="loaded")
-    ha_ce.ConfigFlow = object
+    ha_ce.ConfigFlow = _FakeConfigFlow
     ha_ce.ConfigFlowResult = dict
     ha_ce.ConfigSubentryFlow = object
     ha_ce.SubentryFlowResult = dict
+
+    ha_def = types.ModuleType("homeassistant.data_entry_flow")
+    ha_def.section = lambda schema, options=None: (schema, options)
 
     ha_exc = types.ModuleType("homeassistant.exceptions")
     ha_exc.HomeAssistantError = RuntimeError
@@ -53,8 +60,38 @@ def _install_ha_stubs() -> None:
     ha_dr.DeviceInfo = dict
 
     ha_er = types.ModuleType("homeassistant.helpers.entity_registry")
-    ha_er.async_get = lambda hass: types.SimpleNamespace(async_get=lambda eid: None)
+    ha_er.async_get = lambda hass: types.SimpleNamespace(
+        async_get=lambda eid: None, entities={}
+    )
     ha_er.async_entries_for_device = lambda reg, dev_id: []
+    ha_er.async_entries_for_config_entry = lambda reg, entry_id: []
+
+    class _FakeSelector:
+        def __init__(self, *args, **kwargs):
+            self.args = args
+            self.kwargs = kwargs
+
+    ha_sel = types.ModuleType("homeassistant.helpers.selector")
+    for _sel_name in (
+        "ActionSelector",
+        "AreaSelector",
+        "BooleanSelector",
+        "DeviceSelector",
+        "DeviceSelectorConfig",
+        "EntityFilterSelectorConfig",
+        "EntitySelector",
+        "EntitySelectorConfig",
+        "NumberSelector",
+        "NumberSelectorConfig",
+        "SelectSelector",
+        "SelectSelectorConfig",
+        "TextSelector",
+        "TextSelectorConfig",
+    ):
+        setattr(ha_sel, _sel_name, _FakeSelector)
+    ha_sel.NumberSelectorMode = types.SimpleNamespace(BOX="box", SLIDER="slider")
+    ha_sel.SelectSelectorMode = types.SimpleNamespace(DROPDOWN="dropdown")
+    ha_sel.TextSelectorType = types.SimpleNamespace(PASSWORD="password")
 
     ha_llm = types.ModuleType("homeassistant.helpers.llm")
 
@@ -102,10 +139,23 @@ def _install_ha_stubs() -> None:
     ha_util_json = types.ModuleType("homeassistant.util.json")
     ha_util_json.JsonObjectType = dict
 
+    _UNSET = object()
+
+    class _VolKey(str):
+        def __new__(cls, key, default=_UNSET, description=None):
+            obj = super().__new__(cls, key)
+            obj.default = default
+            obj.description = description
+            return obj
+
     vol_mod = types.ModuleType("voluptuous")
     vol_mod.Schema = lambda s: s
-    vol_mod.Optional = lambda k, default=None: k
-    vol_mod.Required = lambda k, default=None: k
+    vol_mod.Optional = lambda k, default=_UNSET, description=None: _VolKey(
+        k, default=default, description=description
+    )
+    vol_mod.Required = lambda k, default=_UNSET, description=None: _VolKey(
+        k, default=default, description=description
+    )
     vol_mod.In = lambda vals: vals
     vol_mod.Coerce = lambda t: t
     vol_mod.All = lambda *validators: validators
@@ -163,7 +213,19 @@ def _install_ha_stubs() -> None:
 
     ha_comp = types.ModuleType("homeassistant.components")
     ha_http = types.ModuleType("homeassistant.components.http")
-    ha_http.HomeAssistantView = object
+
+    class _FakeHomeAssistantView:
+        requires_auth = True
+
+    ha_http.HomeAssistantView = _FakeHomeAssistantView
+
+    ha_http_auth = types.ModuleType("homeassistant.components.http.auth")
+    ha_http_auth.async_sign_path = (
+        lambda hass, path, expiration, **kwargs: (
+            f"{path}?authSig=test_sig_{int(expiration.total_seconds())}"
+        )
+    )
+    ha_http.auth = ha_http_auth
 
     ha_util = types.ModuleType("homeassistant.util")
     ha_dt = types.ModuleType("homeassistant.util.dt")
@@ -184,6 +246,7 @@ def _install_ha_stubs() -> None:
         "homeassistant.const": ha_const,
         "homeassistant.core": ha_core,
         "homeassistant.config_entries": ha_ce,
+        "homeassistant.data_entry_flow": ha_def,
         "homeassistant.exceptions": ha_exc,
         "homeassistant.helpers": ha_helpers,
         "homeassistant.helpers.area_registry": ha_ar,
@@ -191,6 +254,7 @@ def _install_ha_stubs() -> None:
         "homeassistant.helpers.device_registry": ha_dr,
         "homeassistant.helpers.dispatcher": ha_disp,
         "homeassistant.helpers.entity_registry": ha_er,
+        "homeassistant.helpers.selector": ha_sel,
         "homeassistant.helpers.llm": ha_llm,
         "homeassistant.helpers.event": ha_event,
         "homeassistant.helpers.script": ha_script,
@@ -199,6 +263,7 @@ def _install_ha_stubs() -> None:
         "homeassistant.components": ha_comp,
         "homeassistant.components.diagnostics": ha_diag,
         "homeassistant.components.http": ha_http,
+        "homeassistant.components.http.auth": ha_http_auth,
         "homeassistant.util": ha_util,
         "homeassistant.util.dt": ha_dt,
         "homeassistant.util.json": ha_util_json,
@@ -229,7 +294,7 @@ sys.modules["custom_components"] = types.ModuleType("custom_components")
 sys.modules["custom_components"].__path__ = [str(ROOT / "custom_components")]
 sys.modules["custom_components.plex_smart"] = pkg_stub
 
-from custom_components.plex_smart import ai_parser, api, const, diagnostics, hardware, llm_api, messages, models, payload_templates, privacy, roulette, search, services  # noqa: E402
+from custom_components.plex_smart import ai_parser, api, config_flow, const, diagnostics, hardware, llm_api, messages, models, payload_templates, privacy, roulette, search, services  # noqa: E402
 
 
 def _collect_keys(obj: object, prefix: str = "") -> set[str]:
@@ -370,6 +435,20 @@ class TestSearchAndI18n(unittest.TestCase):
         manifest = json.loads((PKG_DIR / "manifest.json").read_text(encoding="utf-8"))
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["domain"], "plex_smart")
+        self.assertEqual(manifest["version"], "1.0.1")
+        manifest_keys = list(manifest.keys())
+        self.assertEqual(
+            manifest_keys,
+            ["domain", "name", *sorted(k for k in manifest_keys if k not in ("domain", "name"))],
+        )
+        self.assertEqual(
+            manifest["categories"],
+            [
+                "media_entertainment.tv_streaming",
+                "media_entertainment.music_radio_services",
+                "ai_voice.voice_assistants",
+            ],
+        )
         self.assertEqual(hacs["homeassistant"], "2026.9.0")
         self.assertTrue(hacs["zip_release"])
         self.assertEqual(hacs["filename"], "plex_smart.zip")
@@ -1801,26 +1880,49 @@ class TestRoulette(unittest.IsolatedAsyncioTestCase):
                 runtime_data=runtime,
             )
 
+            self.assertTrue(roulette.SmartPlexRouletteImageView.requires_auth)
+            self.assertNotIn("requires_auth", roulette.SmartPlexRouletteImageView.__dict__)
+
             with mock.patch.object(
                 roulette, "build_poster_collage_sync", return_value=b"\xff\xd8\xff\xd9"
             ):
                 res = await roulette.async_spin_roulette(hass, entry, {})
             self.assertTrue(res["success"])
+            self.assertNotIn("file_path", res)
+            self.assertFalse((pathlib.Path(tmpdir) / "www").exists())
+            self.assertTrue(
+                res["local_url"].endswith(
+                    f"?authSig=test_sig_{const.ROULETTE_IMAGE_SIGN_TTL_SEC}"
+                )
+            )
             self.assertTrue(
                 res["image_url"].startswith(
                     "http://127.0.0.1:8123/api/plex_smart/roulette/"
                 )
             )
+            self.assertIn("?authSig=", res["image_url"])
             self.assertIsInstance(res["vk_keyboard"], dict)
             self.assertTrue(res["vk_keyboard"]["inline"])
             self.assertEqual(
                 res["telegram_inline_keyboard"][0], [["▶ 1", "/plex_play:42:Зал"]]
             )
 
+            # Without roulette_view registered, never fall back to unauthenticated /local/
+            hass.data[const.DOMAIN].pop("roulette_view", None)
+            with mock.patch.object(
+                roulette, "build_poster_collage_sync", return_value=b"\xff\xd8\xff\xd9"
+            ):
+                no_view_res = await roulette.async_spin_roulette(hass, entry, {})
+            self.assertEqual(no_view_res["local_url"], "")
+            self.assertEqual(no_view_res["image_url"], "")
+            self.assertNotIn("/local/", no_view_res["local_url"])
+            self.assertFalse((pathlib.Path(tmpdir) / "www").exists())
+
             empty_res = await roulette.async_spin_roulette(
                 hass, entry, {"min_rating": 9.9}
             )
             self.assertFalse(empty_res["success"])
+            self.assertNotIn("file_path", empty_res)
             self.assertEqual(empty_res["image_url"], "")
             self.assertEqual(empty_res["vk_keyboard"], {"inline": True, "buttons": []})
 
@@ -3052,6 +3154,89 @@ class TestV1020ReverseHandoffAndControl(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_v101_config_flow_discovery_never_reads_token_and_preserves_manual_option(
+        self,
+    ) -> None:
+        plex_entry = types.SimpleNamespace(
+            entry_id="plex_e1",
+            title="HomePlex",
+            data={
+                "server": "HomePlex",
+                "server_config": {
+                    "url": "https://192.168.1.50:32400",
+                    "token": "SUPER_SECRET_OTHER_INTEGRATION_TOKEN",
+                    "verify_ssl": False,
+                },
+            },
+        )
+        scan_ent = types.SimpleNamespace(
+            domain="button", entity_id="button.homeplex_scan_clients", disabled=False
+        )
+        hass = _FakeHass()
+        hass.config_entries = types.SimpleNamespace(
+            async_entries=lambda dom: [plex_entry] if dom == "plex" else []
+        )
+        hass.states.async_all = lambda domain=None: []
+
+        er_mod = sys.modules["homeassistant.helpers.entity_registry"]
+        orig_get = er_mod.async_get
+        orig_entries_for_ce = er_mod.async_entries_for_config_entry
+        er_mod.async_get = lambda h: types.SimpleNamespace(
+            async_get=lambda eid: None, entities={}
+        )
+        er_mod.async_entries_for_config_entry = (
+            lambda reg, eid: [scan_ent] if eid == "plex_e1" else []
+        )
+        try:
+            discovered = config_flow._discover_ha_plex_servers(hass)
+            self.assertIn("plex_e1", discovered)
+            info = discovered["plex_e1"]
+            self.assertEqual(info[const.CONF_URL], "https://192.168.1.50:32400")
+            self.assertEqual(info[const.CONF_VERIFY_SSL], False)
+            self.assertEqual(
+                info[const.CONF_SCAN_BUTTON], "button.homeplex_scan_clients"
+            )
+            self.assertNotIn(const.CONF_TOKEN, info)
+            self.assertNotIn(
+                "SUPER_SECRET_OTHER_INTEGRATION_TOKEN", repr(discovered)
+            )
+
+            # Verify SmartPlexConfigFlow offers both discovered server & manual option
+            # and NEVER prefills CONF_TOKEN on manual step
+            flow = config_flow.SmartPlexConfigFlow()
+            flow.hass = hass
+            shown: list[dict] = []
+            flow.async_show_form = lambda **kw: (shown.append(kw) or kw)
+
+            step1 = await flow.async_step_user()
+            self.assertEqual(step1["step_id"], "user")
+            source_sel = next(iter(step1["data_schema"].values()))
+            option_values = [o["value"] for o in source_sel.args[0].kwargs["options"]]
+            self.assertEqual(option_values, ["plex_e1", "manual"])
+
+            # Selecting discovered server prefills URL/SSL/scan_button but NOT token
+            step2 = await flow.async_step_user({"server_source": "plex_e1"})
+            self.assertEqual(step2["step_id"], "manual")
+            url_key = next(k for k in step2["data_schema"] if k == const.CONF_URL)
+            tok_key = next(k for k in step2["data_schema"] if k == const.CONF_TOKEN)
+            self.assertEqual(url_key.default, "https://192.168.1.50:32400")
+            self.assertIsNot(tok_key.default, "SUPER_SECRET_OTHER_INTEGRATION_TOKEN")
+            self.assertFalse(isinstance(tok_key.default, str))
+
+            # Selecting "manual" keeps URL empty and token empty
+            step2_manual = await flow.async_step_user({"server_source": "manual"})
+            self.assertEqual(step2_manual["step_id"], "manual")
+            url_key_m = next(
+                k for k in step2_manual["data_schema"] if k == const.CONF_URL
+            )
+            tok_key_m = next(
+                k for k in step2_manual["data_schema"] if k == const.CONF_TOKEN
+            )
+            self.assertEqual(url_key_m.default, "")
+            self.assertFalse(isinstance(tok_key_m.default, str))
+        finally:
+            er_mod.async_get = orig_get
+            er_mod.async_entries_for_config_entry = orig_entries_for_ce
 
 
 if __name__ == "__main__":

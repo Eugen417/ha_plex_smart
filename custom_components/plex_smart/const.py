@@ -269,3 +269,4 @@ ACTIVE_PLAYBACK_STATES = frozenset({"playing", "buffering", "paused"})
 # HTTP View for roulette collage images
 ROULETTE_IMAGE_URL_PREFIX = "/api/plex_smart/roulette"
 ROULETTE_MAX_CACHED_IMAGES = 10
+ROULETTE_IMAGE_SIGN_TTL_SEC = 300

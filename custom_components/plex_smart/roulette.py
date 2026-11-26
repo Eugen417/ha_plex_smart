@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from collections.abc import Mapping
+from datetime import timedelta
 import io
 import json
 import logging
@@ -16,6 +17,7 @@ from typing import Any
 from aiohttp import web
 
 from homeassistant.components.http import HomeAssistantView
+from homeassistant.components.http.auth import async_sign_path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
@@ -46,6 +48,7 @@ from .const import (
     DEFAULT_WATCH_FILTER,
     DEFAULT_YEAR_FROM,
     DOMAIN,
+    ROULETTE_IMAGE_SIGN_TTL_SEC,
     ROULETTE_IMAGE_URL_PREFIX,
     ROULETTE_MAX_CACHED_IMAGES,
     WATCH_FILTER_ANY,
@@ -316,11 +319,10 @@ def build_poster_collage_sync(
 
 
 class SmartPlexRouletteImageView(HomeAssistantView):
-    """Serves generated roulette collage images without exposing Plex tokens."""
+    """Serves generated roulette collage images via authenticated / signed URLs."""
 
     url = f"{ROULETTE_IMAGE_URL_PREFIX}/{{image_id}}.jpg"
     name = "api:plex_smart:roulette"
-    requires_auth = False
 
     def __init__(self) -> None:
         self._images: OrderedDict[str, bytes] = OrderedDict()
@@ -511,12 +513,6 @@ def build_roulette_keyboards(
     return vk_keyboard_json, tg_rows
 
 
-def _save_jpeg_sync(file_path: str, data: bytes) -> None:
-    os.makedirs(os.path.dirname(file_path), exist_ok=True)
-    with open(file_path, "wb") as fp:
-        fp.write(data)
-
-
 async def async_spin_roulette(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -579,7 +575,6 @@ async def async_spin_roulette(
             "zone": zone_name,
             "preset": preset_name,
             "pick_count": 0,
-            "file_path": "",
             "local_url": "",
             "image_url": "",
             "message": (
@@ -611,18 +606,18 @@ async def async_spin_roulette(
         build_poster_collage_sync, collage_inputs, layout
     )
 
-    file_path = hass.config.path("www", DOMAIN, "roulette_latest.jpg")
-    await hass.async_add_executor_job(_save_jpeg_sync, file_path, jpeg_bytes)
-
     view: SmartPlexRouletteImageView | None = hass.data.get(DOMAIN, {}).get(
         "roulette_view"
     )
-    local_url = (
-        f"{ROULETTE_IMAGE_URL_PREFIX}/{view.store_image(jpeg_bytes)}.jpg"
-        if view is not None
-        else f"/local/{DOMAIN}/roulette_latest.jpg"
-    )
-    image_url = _build_roulette_image_url(hass, local_url)
+    if view is not None:
+        raw_path = f"{ROULETTE_IMAGE_URL_PREFIX}/{view.store_image(jpeg_bytes)}.jpg"
+        local_url = async_sign_path(
+            hass, raw_path, timedelta(seconds=ROULETTE_IMAGE_SIGN_TTL_SEC)
+        )
+        image_url = _build_roulette_image_url(hass, local_url)
+    else:
+        local_url = ""
+        image_url = ""
 
     header = (
         f"🍿 Что посмотрим сегодня? ({zone_name})"
@@ -669,7 +664,6 @@ async def async_spin_roulette(
         "zone": zone_name,
         "preset": preset_name,
         "pick_count": len(picked),
-        "file_path": file_path,
         "local_url": local_url,
         "image_url": image_url,
         "message": "\n".join(lines),

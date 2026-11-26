@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/hacs/integration"><img alt="HACS" src="badges/hacs.svg" /></a>
-  <img alt="Release v1.0.0" src="badges/release.svg" />
+  <img alt="Release v1.0.1" src="badges/release.svg" />
   <a href="https://www.home-assistant.io/"><img alt="Home Assistant 2026.9+" src="badges/home_assistant.svg" /></a>
   <a href="https://developer.plex.tv/pms/"><img alt="Plex OpenAPI v1.2.3" src="badges/plex_api.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="badges/license.svg" /></a>
@@ -26,7 +26,7 @@
 Before installing **SmartPlex**, make sure you have:
 
 1. **Plex Media Server** (`v1.41+ / v1.43+`) running on your network with your movie, TV show, or music libraries.
-2. **Home Assistant's built-in [Plex Media Server](https://www.home-assistant.io/integrations/plex/) integration installed and configured** — **required!** It provides the `media_player.plex_*` client entities, real-time WebSocket session updates, and `PlayQueue` builders, while allowing SmartPlex to auto-discover your URL, `X-Plex-Token`, and `button.*_scan_clients` in 1 click.
+2. **Home Assistant's built-in [Plex Media Server](https://www.home-assistant.io/integrations/plex/) integration installed and configured** — **required!** It provides the `media_player.plex_*` client entities, real-time WebSocket session updates, and `PlayQueue` builders, while letting SmartPlex prefill your server URL and `button.*_scan_clients` entity during setup (you enter your own `X-Plex-Token` directly).
 3. **Your TV or streaming-box integration in Home Assistant** (*LG webOS TV*, *Apple TV*, *Samsung Smart TV*, *Android TV Remote*, etc.) — used to wake powered-off hardware (Wake-on-LAN / Companion), launch the Plex app, switch HDMI inputs, and power off the previous room's TV during handoff.
 4. **An AI Agent (optional, depends on how you control Plex):**
    * **For Voice / Assist Chat:** any tool-capable conversation agent (**Google Gemini**, **OpenAI**, **[Yandex AI Studio](https://github.com/Eugen417/HA-Yandex-generative_ai_conversation)**, **[Sber GigaChat AI](https://github.com/Eugen417/HA-GigaChat-generative_ai_conversation)**, **Ollama**).
@@ -69,7 +69,7 @@ SmartPlex is provider-agnostic — pick your LLM based on **tool-calling reliabi
 
 ## ✨ Key Features
 
-* ⚡ **1-Click Plex Discovery:** Automatically detects your existing Home Assistant `plex` integration and pre-fills your local URL, `X-Plex-Token`, and `button.*_scan_clients` entity (manual setup is also supported).
+* ⚡ **Guided Plex Server Setup:** Detects existing Home Assistant `plex` servers to prefill your local URL, SSL setting, and `button.*_scan_clients` entity (full manual entry is also supported; your `X-Plex-Token` is entered directly and never read from other integrations).
 * 📺 **Hardware-Aware Media Zones (`ConfigSubentry`):**
   * **Built-in Power Profiles:** **LG webOS** *(races `play_media` against WebSocket state events to bypass `plexapi`'s 30s proxy `ReadTimeout` without restarting playback)*, **Apple TV** *(bypasses closed port `32500` on Plex tvOS `2026.20+` via `plex://libraries/.../unmatched/...` deep links, `/:/timeline` + `/:/unscrobble` sync, and auto `select`)*, **Samsung Tizen** *(Wake-on-LAN via `media_player`, App ID `3201512006963`, and ~30s cold app boot handling)*, **Android TV / Google TV / Shield**, **Standard Media Player**, and **Custom Actions (`ActionSelector`)**.
   * **Primary Room Player (`is_default`) + Paired Display/AVR:** designates the default player when multiple devices share one room, wakes a paired TV/projector/AVR (`display_device_id` + `display_source`) in parallel, and runs **3-Phase Boot Timings** (❄️ *Cold* / 🌤 *Warm* / 🔥 *Hot*).
@@ -82,7 +82,7 @@ SmartPlex is provider-agnostic — pick your LLM based on **tool-calling reliabi
   * Native `GET /library/metadata/{id}/similar` support (*“play something similar to The Gentlemen”*).
 * 🔄 **Seamless Bidirectional Cross-Room Handoff (`plex_smart.handoff`):** Say *“Move the movie from living room to bedroom”* or *“Switch it back to the living room”* — SmartPlex captures the live position before power-off, **turns off the previous TV**, wakes the target TV, and resumes from the exact timestamp (with a 5-second overlap rewind and strict per-zone `machine_id` session isolation).
 * ⏯ **Hardware-Aware Playback Control & Seek (`plex_smart.control`):** *pause*, smart *resume* (unpauses in-place without restarting from `0:00`), *stop*, *seek forward/backward (±5–10s / N min)*, *jump to timestamp* (*“seek to minute 30”*), *restart from `0:00`*, *next/previous*, *repeat (`off`/`one`/`all`)*, and *shuffle*. Full command catalog & YAML examples: **[📖 Commands Reference (`docs/COMMANDS.en.md`)](docs/COMMANDS.en.md)**.
-* 🎲 **Configurable Movie Roulette (`plex_smart.spin_roulette`):** Renders a numbered `Pillow` poster collage via an internal HTTP view (`roulette.image_url` — no `allowlist_external_dirs` needed and zero Plex token exposure), returns native inline keyboards for **Telegram Bot** (`telegram_inline_keyboard`) and **VK Notify** (`vk_keyboard`), and ships with 1-click **HA Blueprints** in [`blueprints/automation/Eugen417/`](blueprints/automation/Eugen417/) plus YAML examples in [`examples/en/`](examples/en/README.md).
+* 🎲 **Configurable Movie Roulette (`plex_smart.spin_roulette`):** Renders a numbered `Pillow` poster collage in memory and serves it over an authenticated HTTP view using short-lived signed URLs (`async_sign_path`, zero `/config/www` disk writes, zero Plex token exposure, no `allowlist_external_dirs` needed), returns native inline keyboards for **Telegram Bot** (`telegram_inline_keyboard`) and **VK Notify** (`vk_keyboard`), and ships with ready-to-use **HA Blueprints** in [`blueprints/automation/Eugen417/`](blueprints/automation/Eugen417/) plus YAML examples in [`examples/en/`](examples/en/README.md).
 * 🔒 **Privacy & Localization:** Neutral replies in your Home Assistant language (EN / RU) with an optional custom greeting (`user_title`), plus automatic redaction of tokens, LAN IPs, and `*.plex.direct` hosts in logs and diagnostics (`privacy.py`, `diagnostics.py`).
 
 ---
@@ -135,7 +135,8 @@ Modern TV and set-top-box Plex clients suffer from platform quirks that break na
 1. Copy `custom_components/plex_smart` into `/config/custom_components/` (or install via **HACS / Marketplace**) and **restart Home Assistant**.
 2. Make sure the built-in **Plex Media Server** integration and your TV / streaming-box integrations (*LG webOS*, *Apple TV*, *Samsung*, *Android TV*) are configured in Home Assistant.
 3. Go to **Settings → Devices & Services → Add Integration → SmartPlex**:
-   * pick your discovered Plex server (URL, `X-Plex-Token`, and `scan_clients` button are filled automatically);
+   * pick your discovered Plex server to prefill URL, SSL setting, and `scan_clients` button (or choose manual entry);
+   * enter your own `X-Plex-Token` *(Plex Web → any item `⋯` → Get Info → View XML → `X-Plex-Token` at the end of the URL)*;
    * optionally set a custom greeting or leave it empty for neutral replies.
 4. Inside the **SmartPlex** card, add **Media Zones** (e.g. *Living Room*, *Bedroom*, *Apple TV*) and optional **Movie Roulette Presets**:
    * select the HA Area, `media_player.plex_*` client, power profile, and physical TV/box device;

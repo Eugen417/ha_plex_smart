@@ -2,11 +2,16 @@
   "domain": "plex_smart",
   "name": "SmartPlex",
   "after_dependencies": ["plex", "http"],
+  "categories": [
+    "media_entertainment.tv_streaming",
+    "media_entertainment.music_radio_services",
+    "ai_voice.voice_assistants"
+  ],
   "codeowners": ["@Eugen417"],
   "config_flow": true,
   "documentation": "https://github.com/Eugen417/ha_plex_smart",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/Eugen417/ha_plex_smart/issues",
   "requirements": [],
-  "version": "1.0.0"
+  "version": "1.0.1"
 }

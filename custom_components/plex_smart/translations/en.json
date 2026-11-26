@@ -3,14 +3,14 @@
     "step": {
       "user": {
         "title": "Select Plex Server",
-        "description": "Choose an existing Home Assistant Plex server for 1-click setup or enter URL & token manually.",
+        "description": "Choose an existing Home Assistant Plex server to prefill its URL, SSL setting, and scan button, or enter all details manually. You will always enter your own X-Plex-Token on the next step.",
         "data": {
           "server_source": "Plex Server"
         }
       },
       "manual": {
         "title": "Connect to Plex Media Server",
-        "description": "If you picked an existing HA Plex server, URL & Token are already filled automatically — just click Submit.",
+        "description": "Verify the server URL and enter your Plex token (X-Plex-Token) to connect SmartPlex.",
         "data": {
           "url": "Plex Server URL",
           "token": "Plex Token (X-Plex-Token)",
@@ -21,8 +21,8 @@
           "user_title": "Custom greeting / address"
         },
         "data_description": {
-          "url": "Local Plex Media Server address, e.g. https://192.168.1.100:32400 (auto-filled from HA Plex).",
-          "token": "Auto-filled from built-in Plex integration. For manual entry: Plex Web → item (⋯) → Get Info → View XML → X-Plex-Token at the end of the URL.",
+          "url": "Local Plex Media Server address, e.g. https://192.168.1.100:32400 (prefilled if you selected a server on the previous step).",
+          "token": "Your Plex authentication token: open Plex Web → any item (⋯) → Get Info → View XML → copy X-Plex-Token from the end of the URL.",
           "verify_ssl": "Leave OFF for local LAN IPs or self-signed Plex certificates; turn ON only if using a valid public HTTPS domain.",
           "scan_button": "The button.*_scan_clients entity from built-in Plex integration so SmartPlex discovers waking TV clients faster.",
           "ai_entity": "Used ONLY by the plex_smart.command service for text automations. Voice Assist agents (Gemini, Yandex, GigaChat, Ollama) work directly via SmartPlex LLM API without AI Task.",

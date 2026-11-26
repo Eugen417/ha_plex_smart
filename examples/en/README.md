@@ -10,7 +10,7 @@ Copy [`../../blueprints/automation/Eugen417/smartplex_telegram_movie_roulette_en
   <img width="48%" alt="Launching a movie from Telegram" src="../../docs/images/roulette_telegram_2.png" />
 </p>
 
-> 💡 **Zero `configuration.yaml` edits required:** SmartPlex serves the poster collage over its internal `roulette.image_url` endpoint (no `allowlist_external_dirs` needed for `/config/www`), and you can test the showcase anytime via **Run actions** in the automation menu.
+> 💡 **Zero `configuration.yaml` edits required:** SmartPlex serves the poster collage from memory over its authenticated `roulette.image_url` endpoint using short-lived signed URLs (no `/config/www` files and no `allowlist_external_dirs` needed), and you can test the showcase anytime via **Run actions** in the automation menu.
 
 ---
 
