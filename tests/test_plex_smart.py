@@ -3241,12 +3241,12 @@ class TestV1020ReverseHandoffAndControl(unittest.IsolatedAsyncioTestCase):
     async def test_v102_apple_tv_resume_single_select_and_speedtest_guard(
         self,
     ) -> None:
-        """Resume on Apple TV must press 'select' ONLY ONCE (never pausing stream) and never click Speedtest."""
+        """Resume on Apple TV (even when tvOS MRP reports 'Музыка') presses 'select' ONCE; TV source mismatch aborts."""
         hass = _FakeHass(
             {
                 "media_player.apple_tv_4k": _FakeState(
                     "idle",
-                    {"app_id": const.APPLE_TV_PLEX_APP_ID, "app_name": "Plex"},
+                    {"app_id": "com.apple.TVMusic", "app_name": "Музыка"},
                 ),
                 "remote.apple_tv_4k": _FakeState("on"),
                 "media_player.plex_atv": _FakeState("unavailable"),
@@ -3271,11 +3271,12 @@ class TestV1020ReverseHandoffAndControl(unittest.IsolatedAsyncioTestCase):
             0.005, result=ev.is_set()
         )
         try:
+            # 1. Live tvOS reporting background 'Музыка' before AVPlayer starts -> succeeds & presses 'select' ONCE!
             ok, _, err = await hardware.async_play_on_zone_with_retry(
                 hass,
                 entry_data,
                 zone,
-                {"plex_key": 7797, "resume": 1, "offset": 1058},
+                {"plex_key": 7797, "resume": 1, "offset": 2469},
                 "movie",
                 api=_ProgApi(),
             )
@@ -3293,30 +3294,23 @@ class TestV1020ReverseHandoffAndControl(unittest.IsolatedAsyncioTestCase):
             ]
             self.assertEqual(len(select_calls), 1)
 
+            # 2. Misconfigured TV entity reporting HDMI input 'Apple OTT' -> aborts before pressing select!
             hass.calls.clear()
             hass.set_state(
                 "media_player.apple_tv_4k",
-                "idle",
-                {"app_id": "com.ookla.speedtest", "app_name": "Speedtest"},
+                "on",
+                {"source": "Apple OTT", "source_list": ["Plex", "Apple OTT"]},
             )
             ok_bad, _, err_bad = await hardware.async_play_on_zone_with_retry(
                 hass,
                 entry_data,
                 zone,
-                {"plex_key": 7797, "resume": 1, "offset": 1058},
+                {"plex_key": 7797, "resume": 1, "offset": 2469},
                 "movie",
                 api=_ProgApi(),
             )
             self.assertFalse(ok_bad)
-            self.assertIn("Speedtest", err_bad)
-            self.assertIn(
-                (
-                    "media_player",
-                    "select_source",
-                    {"entity_id": "media_player.apple_tv_4k", "source": "Plex"},
-                ),
-                hass.calls,
-            )
+            self.assertIn("Apple OTT", err_bad)
             bad_selects = [
                 c
                 for c in hass.calls
@@ -3341,7 +3335,7 @@ class TestV1020ReverseHandoffAndControl(unittest.IsolatedAsyncioTestCase):
                 ),
                 "media_player.apple_tv_4k": _FakeState(
                     "idle",
-                    {"app_id": const.APPLE_TV_PLEX_APP_ID, "app_name": "Plex"},
+                    {"app_id": "com.apple.TVMusic", "app_name": "Музыка"},
                 ),
                 "remote.apple_tv_4k": _FakeState("on"),
                 "media_player.plex_atv": _FakeState("unavailable"),

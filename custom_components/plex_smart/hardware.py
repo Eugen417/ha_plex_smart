@@ -20,7 +20,6 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ACTIVE_PLAYBACK_STATES,
-    APPLE_TV_PLEX_APP_ID,
     CONF_APP_SOURCE,
     CONF_AREA_ID,
     CONF_ATV_AUTO_SELECT,
@@ -338,38 +337,6 @@ async def _async_ensure_display_ready(
         )
 
 
-def _apple_tv_app_status(st: Any, app_source: str = DEFAULT_APP_SOURCE) -> str:
-    """Classify Apple TV foreground app as 'plex', 'other', or 'unknown'.
-
-    Home Assistant's built-in `apple_tv` media_player exposes `app_id` and `app_name`
-    (never `source`), while custom/TV entities may expose `source`.
-    """
-    if st is None:
-        return "unknown"
-    attrs = getattr(st, "attributes", None) or {}
-    want = (app_source or DEFAULT_APP_SOURCE).strip().lower()
-    app_id = str(attrs.get("app_id") or "").strip().lower()
-    app_name = str(attrs.get("app_name") or "").strip()
-    cur_src = str(attrs.get("source") or "").strip()
-    src_list = attrs.get("source_list") or []
-
-    if (
-        app_id == APPLE_TV_PLEX_APP_ID
-        or ("plex" in app_id and app_id.startswith("com.plexapp"))
-        or (app_name and app_name.lower() == want)
-        or (cur_src and cur_src.lower() == want)
-    ):
-        return "plex"
-
-    if app_id or app_name:
-        return "other"
-    if cur_src and (
-        not src_list or any(str(s).strip().lower() == want for s in src_list)
-    ):
-        return "other"
-    return "unknown"
-
-
 def _zones_share_physical_display(
     hass: HomeAssistant,
     source_data: Mapping[str, Any],
@@ -398,13 +365,10 @@ def is_zone_hot_ready(hass: HomeAssistant, zone_data: Mapping[str, Any]) -> bool
     _, hw_entity, _ = resolve_zone_hardware(hass, zone_data)
 
     # On Apple TV (Plex 2026.20+), we always play via tvOS Deep Link on hw_entity,
-    # so readiness depends on Apple TV itself being awake (and not sitting on another app).
+    # so readiness depends on Apple TV itself being awake, not the sleeping Plex port 32500.
     if profile == PROFILE_APPLE_TV and hw_entity:
         hw_st = hass.states.get(hw_entity)
-        if hw_st is None or hw_st.state in _HW_OFF_STATES:
-            return False
-        app_source = str(zone_data.get(CONF_APP_SOURCE) or DEFAULT_APP_SOURCE).strip()
-        return _apple_tv_app_status(hw_st, app_source) != "other"
+        return hw_st is not None and hw_st.state not in _HW_OFF_STATES
 
     if not is_plex_client_ready(hass, plex_client):
         return False
@@ -1162,25 +1126,19 @@ async def async_play_apple_tv_deeplink(
     card_delay = _zone_timing(zone_data, CONF_WARM_APP_DELAY)
     app_source = str(zone_data.get(CONF_APP_SOURCE) or DEFAULT_APP_SOURCE).strip()
 
-    async def _wait_for_plex_foreground(max_wait: float) -> str:
-        cur = _apple_tv_app_status(hass.states.get(hw_entity), app_source)
-        if cur != "other" or max_wait <= 0:
-            return cur
-        fg_ev = asyncio.Event()
+    # 4. Guard against misconfigured hw_entity (e.g. TV entity selected instead of Apple TV box)
+    hw_reg = er.async_get(hass).async_get(hw_entity)
+    hw_platform = getattr(hw_reg, "platform", None) if hw_reg is not None else None
+    if hw_platform not in (None, "apple_tv"):
+        msg = (
+            f"Zone hw_entity '{hw_entity}' belongs to '{hw_platform}', not 'apple_tv'. "
+            "Select the Apple TV device in Physical TV/Player and put the TV in Paired Display."
+        )
+        _LOGGER.warning("SmartPlex: %s", msg)
+        return False, 0, msg
 
-        @callback
-        def _on_hw_fg(event: Event) -> None:
-            if _apple_tv_app_status(event.data.get("new_state"), app_source) == "plex":
-                fg_ev.set()
-
-        unsub_fg = async_track_state_change_event(hass, [hw_entity], _on_hw_fg)
-        try:
-            await _async_wait_event_or_delay(fg_ev, max_wait)
-        finally:
-            unsub_fg()
-        return _apple_tv_app_status(hass.states.get(hw_entity), app_source)
-
-    # 4. Send deep link; verify Plex actually opened and fall back to select_source('Plex') + retry
+    # 5. Send deep link (Note: do NOT inspect pyatv app_name/app_id before 'select', because tvOS
+    # MRP keeps reporting background 'Музыка'/'com.apple.TVMusic' until AVPlayer starts playing!)
     for dl_attempt in range(2):
         try:
             await hass.services.async_call(
@@ -1197,56 +1155,37 @@ async def async_play_apple_tv_deeplink(
             safe = redact_sensitive_text(err)
             _LOGGER.warning("SmartPlex Apple TV deep link failed: %s", safe)
             if dl_attempt == 0:
-                await _async_launch_plex_app(hass, zone_data)
-                if card_delay > 0:
-                    await asyncio.sleep(2.0)
+                await asyncio.sleep(2.0 if card_delay > 0 else 0.0)
                 continue
             return False, dl_attempt, safe
 
         if card_delay > 0:
             await asyncio.sleep(card_delay)
 
-        fg_wait = max(2.5, card_delay) if card_delay > 0 else 0.0
-        fg_status = await _wait_for_plex_foreground(fg_wait)
-        if dl_attempt == 0 and fg_status == "other":
-            st_after = hass.states.get(hw_entity)
-            cur_app = (
-                (
-                    st_after.attributes.get("app_name")
-                    or st_after.attributes.get("app_id")
-                    or st_after.attributes.get("source")
+        st_after = hass.states.get(hw_entity)
+        cur_src = str(st_after.attributes.get("source") or "").strip() if st_after else ""
+        src_list = (st_after.attributes.get("source_list") or []) if st_after else []
+        if (
+            cur_src
+            and src_list
+            and app_source in src_list
+            and cur_src.lower() != app_source.lower()
+        ):
+            if dl_attempt == 0:
+                _LOGGER.debug(
+                    "Apple TV entity reported input source='%s' instead of '%s', retrying deep link",
+                    cur_src,
+                    app_source,
                 )
-                if st_after
-                else ""
+                await asyncio.sleep(2.0 if card_delay > 0 else 0.0)
+                continue
+            msg = (
+                f"Entity '{hw_entity}' remained on HDMI input '{cur_src}' instead of '{app_source}'; "
+                "aborted auto-select to avoid clicking the wrong app."
             )
-            _LOGGER.debug(
-                "Apple TV did not switch to Plex yet (active=%s); launching Plex app and retrying deep link",
-                cur_app,
-            )
-            await _async_launch_plex_app(hass, zone_data)
-            if card_delay > 0:
-                await _wait_for_plex_foreground(max(2.5, card_delay))
-                await asyncio.sleep(min(1.5, card_delay))
-            continue
+            _LOGGER.warning("SmartPlex: %s", msg)
+            return False, 1, msg
         break
-
-    if _apple_tv_app_status(hass.states.get(hw_entity), app_source) == "other":
-        st_fin = hass.states.get(hw_entity)
-        cur_app = (
-            (
-                st_fin.attributes.get("app_name")
-                or st_fin.attributes.get("app_id")
-                or st_fin.attributes.get("source")
-            )
-            if st_fin
-            else "unknown"
-        )
-        msg = (
-            f"Apple TV remained on '{cur_app}' instead of '{app_source}'; "
-            "aborted auto-select to avoid opening another app."
-        )
-        _LOGGER.warning("SmartPlex: %s", msg)
-        return False, 1, msg
 
     auto_select = bool(zone_data.get(CONF_ATV_AUTO_SELECT, DEFAULT_ATV_AUTO_SELECT))
     if not auto_select or not remote_entity:
