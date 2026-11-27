@@ -1,0 +1,29 @@
+# 🍿 Встроенные карточки дашборда SmartPlex (Lovelace UI) — #10
+# Две полностью ОТДЕЛЬНЫЕ, компактные и свободно растягиваемые карточки!
+# Встроены прямо в интеграцию SmartPlex и доступны через кнопку «Добавить карточку»
+# в Home Assistant (после установки/обновления очистите кэш браузера Ctrl+F5 / Cmd+Shift+R):
+
+# ── Карточка №1 (добавляется отдельно): SmartPlex: Кинорулетка ──────────────
+- type: custom:smartplex-roulette-card
+  layout: shelf            # shelf (Полка) | grid (Плитка) | list (Компактный список)
+  surface_style: frosted   # frosted (Матовое стекло) | tinted (Тёмный акрил) | theme (Системная тема)
+  poster_height: 128       # высота постеров (84..240 px)
+  max_items: 4
+  show_zone_picker: true
+  start_folded: false      # true = стартует в компактном свёрнутом виде
+  grid_options:
+    columns: 6             # свободно растягивается мышкой от 3 до 12 колонок!
+
+# ── Карточка №2 (добавляется отдельно): SmartPlex: Недавно добавленные ──────
+- type: custom:smartplex-recent-card
+  layout: shelf            # shelf | grid | list
+  surface_style: frosted   # frosted | tinted | theme
+  poster_height: 128
+  max_items: 6
+  show_zone_picker: true
+  start_folded: false
+  grid_options:
+    columns: 6
+
+
+

@@ -20,7 +20,10 @@ def _install_ha_stubs() -> None:
 
     ha = types.ModuleType("homeassistant")
     ha_const = types.ModuleType("homeassistant.const")
-    ha_const.Platform = types.SimpleNamespace(BUTTON="button", SENSOR="sensor")
+    ha_const.Platform = types.SimpleNamespace(
+        BUTTON="button",
+        SENSOR="sensor",
+    )
     ha_const.EntityCategory = types.SimpleNamespace(DIAGNOSTIC="diagnostic")
 
     ha_core = types.ModuleType("homeassistant.core")
@@ -55,7 +58,11 @@ def _install_ha_stubs() -> None:
     ha_ar.async_get = lambda hass: types.SimpleNamespace(async_get_area=lambda aid: None)
 
     ha_dr = types.ModuleType("homeassistant.helpers.device_registry")
-    ha_dr.async_get = lambda hass: types.SimpleNamespace(async_get=lambda did: None)
+    ha_dr.async_get = lambda hass: types.SimpleNamespace(
+        async_get=lambda did: None,
+        async_remove_device=lambda did: None,
+    )
+    ha_dr.async_entries_for_config_entry = lambda reg, entry_id: []
     ha_dr.DeviceEntryType = types.SimpleNamespace(SERVICE="service")
     ha_dr.DeviceInfo = dict
 
@@ -166,9 +173,37 @@ def _install_ha_stubs() -> None:
     ha_cv.boolean = bool
     ha_cv.entity_id = str
     ha_cv.ensure_list = lambda v: v if isinstance(v, list) else [v]
+    ha_cv.config_entry_only_config_schema = lambda dom: dom
 
     ha_disp = types.ModuleType("homeassistant.helpers.dispatcher")
     ha_disp.async_dispatcher_send = lambda *a, **kw: None
+    ha_disp.async_dispatcher_connect = lambda *a, **kw: (lambda: None)
+
+    ha_ep = types.ModuleType("homeassistant.helpers.entity_platform")
+    ha_ep.AddConfigEntryEntitiesCallback = object
+
+    ha_uc = types.ModuleType("homeassistant.helpers.update_coordinator")
+
+    class _FakeDataUpdateCoordinator:
+        def __class_getitem__(cls, _item):
+            return cls
+
+        def __init__(self, *args, **kwargs):
+            self.data = None
+
+    class _FakeCoordinatorEntity:
+        def __class_getitem__(cls, _item):
+            return cls
+
+        def __init__(self, coordinator):
+            self.coordinator = coordinator
+
+        def _handle_coordinator_update(self):
+            return None
+
+    ha_uc.DataUpdateCoordinator = _FakeDataUpdateCoordinator
+    ha_uc.UpdateFailed = RuntimeError
+    ha_uc.CoordinatorEntity = _FakeCoordinatorEntity
 
     ha_event = types.ModuleType("homeassistant.helpers.event")
 
@@ -227,11 +262,19 @@ def _install_ha_stubs() -> None:
     )
     ha_http.auth = ha_http_auth
 
+    ha_btn = types.ModuleType("homeassistant.components.button")
+    ha_btn.ButtonEntity = object
+
+    ha_sens = types.ModuleType("homeassistant.components.sensor")
+    ha_sens.SensorEntity = object
+    ha_sens.SensorStateClass = types.SimpleNamespace(MEASUREMENT="measurement")
+
     ha_util = types.ModuleType("homeassistant.util")
     ha_dt = types.ModuleType("homeassistant.util.dt")
     import datetime as _dt
 
     ha_dt.now = lambda: _dt.datetime(2026, 11, 20, 20, 0, 0)
+    ha_dt.utcnow = lambda: _dt.datetime(2026, 11, 20, 17, 0, 0, tzinfo=_dt.UTC)
 
     aiohttp_mod = types.ModuleType("aiohttp")
     aiohttp_mod.ClientSession = object
@@ -253,17 +296,21 @@ def _install_ha_stubs() -> None:
         "homeassistant.helpers.config_validation": ha_cv,
         "homeassistant.helpers.device_registry": ha_dr,
         "homeassistant.helpers.dispatcher": ha_disp,
+        "homeassistant.helpers.entity_platform": ha_ep,
         "homeassistant.helpers.entity_registry": ha_er,
         "homeassistant.helpers.selector": ha_sel,
         "homeassistant.helpers.llm": ha_llm,
         "homeassistant.helpers.event": ha_event,
         "homeassistant.helpers.script": ha_script,
         "homeassistant.helpers.storage": ha_storage,
+        "homeassistant.helpers.update_coordinator": ha_uc,
         "homeassistant.helpers.aiohttp_client": ha_aio,
         "homeassistant.components": ha_comp,
+        "homeassistant.components.button": ha_btn,
         "homeassistant.components.diagnostics": ha_diag,
         "homeassistant.components.http": ha_http,
         "homeassistant.components.http.auth": ha_http_auth,
+        "homeassistant.components.sensor": ha_sens,
         "homeassistant.util": ha_util,
         "homeassistant.util.dt": ha_dt,
         "homeassistant.util.json": ha_util_json,
@@ -294,7 +341,7 @@ sys.modules["custom_components"] = types.ModuleType("custom_components")
 sys.modules["custom_components"].__path__ = [str(ROOT / "custom_components")]
 sys.modules["custom_components.plex_smart"] = pkg_stub
 
-from custom_components.plex_smart import ai_parser, api, config_flow, const, diagnostics, hardware, llm_api, messages, models, payload_templates, privacy, roulette, search, services  # noqa: E402
+from custom_components.plex_smart import ai_parser, api, button, config_flow, const, diagnostics, hardware, llm_api, messages, models, payload_templates, privacy, roulette, search, sensor, services  # noqa: E402
 
 
 def _collect_keys(obj: object, prefix: str = "") -> set[str]:
@@ -333,6 +380,17 @@ class _FakeHass:
         class _Services:
             def __init__(self, outer):
                 self._outer = outer
+                self._registered = {}
+
+            def has_service(self, domain, service):
+                return (domain, service) in self._registered
+
+            def async_register(self, domain, service, handler, schema=None, supports_response=None):
+                self._registered[(domain, service)] = {
+                    "handler": handler,
+                    "schema": schema,
+                    "supports_response": supports_response,
+                }
 
             async def async_call(self, domain, service, data, blocking=True, return_response=False):
                 self._outer.calls.append((domain, service, dict(data)))
@@ -435,7 +493,7 @@ class TestSearchAndI18n(unittest.TestCase):
         manifest = json.loads((PKG_DIR / "manifest.json").read_text(encoding="utf-8"))
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["domain"], "plex_smart")
-        self.assertEqual(manifest["version"], "1.0.3")
+        self.assertEqual(manifest["version"], "1.1.0")
         manifest_keys = list(manifest.keys())
         self.assertEqual(
             manifest_keys,
@@ -3549,6 +3607,215 @@ class TestV1020ReverseHandoffAndControl(unittest.IsolatedAsyncioTestCase):
         finally:
             hardware.asyncio.sleep = orig_sleep
             hardware._async_wait_event_or_delay = orig_wait
+
+    async def test_dev_ui_cards_roulette_and_recently_added_showcases(
+        self,
+    ) -> None:
+        """Issue #10: UI Roulette & Recently Added Image, Sensor, and Spin Button entities."""
+        from unittest import mock
+
+        m_old = models.PlexMediaItem(
+            rating_key=10,
+            section_id="1",
+            library_title="Фильмы",
+            media_type="movie",
+            title="Старый хит",
+            title_norm="старый хит",
+            original_title="Old Hit",
+            orig_norm="old hit",
+            year=2020,
+            rating=8.1,
+            added_at=100,
+        )
+        m_new = models.PlexMediaItem(
+            rating_key=20,
+            section_id="1",
+            library_title="Фильмы",
+            media_type="movie",
+            title="Свежая новинка",
+            title_norm="свежая новинка",
+            original_title="Fresh Release",
+            orig_norm="fresh release",
+            year=2026,
+            rating=8.8,
+            added_at=500,
+        )
+        index = models.PlexIndexData(
+            items_by_type={"movie": [m_old, m_new], "show": [], "music": []},
+            items_by_key={10: m_old, 20: m_new},
+            recently_added=[m_new, m_old],
+            playlists=[],
+        )
+        hass = _FakeHass(
+            {
+                "media_player.plex_lg": _FakeState("idle"),
+                "media_player.lg_tv": _FakeState("on", {"source": "Plex", "source_list": ["Plex"]}),
+            }
+        )
+        hass.data = {const.DOMAIN: {"roulette_view": roulette.SmartPlexRouletteImageView()}}
+        hass.async_add_executor_job = lambda fn, *a: asyncio.sleep(0, result=fn(*a))
+
+        z_lg = types.SimpleNamespace(
+            subentry_id="z_lg",
+            subentry_type=const.SUBENTRY_TYPE_ZONE,
+            title="Зал",
+            data={
+                const.CONF_ZONE_NAME: "Зал",
+                const.CONF_IS_DEFAULT: True,
+                const.CONF_PLEX_CLIENT: "media_player.plex_lg",
+                const.CONF_HARDWARE_ENTITY: "media_player.lg_tv",
+                const.CONF_POWER_PROFILE: const.PROFILE_LG_WEBOS,
+            },
+        )
+        runtime = models.PlexSmartRuntimeData(
+            coordinator=types.SimpleNamespace(data=index),
+            api=types.SimpleNamespace(
+                async_fetch_poster_bytes=lambda _t: asyncio.sleep(0, result=None),
+                async_get_active_sessions=lambda: asyncio.sleep(0, result=[]),
+                async_get_continue_watching=lambda: asyncio.sleep(0, result=[m_new]),
+            ),
+            roulette_store=roulette.RouletteHistoryStore(hass, "e1"),
+        )
+        entry = types.SimpleNamespace(
+            entry_id="e1",
+            title="HomePlex",
+            data={const.CONF_SERVER_ID: "srv1", const.CONF_SERVER_NAME: "HomePlex"},
+            subentries={"z_lg": z_lg},
+            runtime_data=runtime,
+        )
+
+        rec_sensor = sensor.SmartPlexRecentlyAddedSensor(entry, runtime.coordinator)
+        self.assertEqual(rec_sensor.native_value, "Свежая новинка (2026)")
+        self.assertEqual(rec_sensor.extra_state_attributes["items"][0]["rating_key"], 20)
+        self.assertEqual(rec_sensor.extra_state_attributes["entry_id"], "e1")
+        self.assertEqual(rec_sensor.extra_state_attributes["zones"], ["Зал"])
+        self.assertEqual(rec_sensor.extra_state_attributes["default_zone"], "Зал")
+
+        with mock.patch.object(
+            roulette, "build_poster_collage_sync", return_value=b"\xff\xd8\xff\xd9"
+        ):
+            spin_btn = button.SmartPlexSpinRouletteButton(entry)
+            spin_btn.hass = hass
+            self.assertEqual(spin_btn.extra_state_attributes["ui_card_kind"], "roulette")
+            self.assertEqual(spin_btn.extra_state_attributes["items"], [])
+            await spin_btn.async_press()
+
+            self.assertEqual(len(spin_btn.extra_state_attributes["items"]), 2)
+            self.assertEqual(spin_btn.extra_state_attributes["zones"], ["Зал"])
+            self.assertEqual(spin_btn.extra_state_attributes["ui_card_kind"], "roulette")
+            self.assertEqual(rec_sensor.extra_state_attributes["ui_card_kind"], "recent")
+            self.assertEqual(runtime.last_roulette_result["entry_id"], "e1")
+            self.assertEqual(runtime.last_roulette_result["zones"], ["Зал"])
+
+        # Authenticated individual poster proxy view for bundled JS cards
+        self.assertTrue(roulette.SmartPlexPosterProxyView.requires_auth)
+        m_new_poster = models.PlexMediaItem(
+            rating_key=20,
+            section_id="1",
+            library_title="Фильмы",
+            media_type="movie",
+            title="Свежая новинка",
+            title_norm="свежая новинка",
+            original_title="Fresh Release",
+            orig_norm="fresh release",
+            year=2026,
+            rating=8.8,
+            thumb="/library/metadata/20/thumb/1",
+            added_at=500,
+        )
+        index.items_by_key[20] = m_new_poster
+        runtime.api.async_fetch_poster_bytes = lambda _t: asyncio.sleep(
+            0, result=b"\xff\xd8\xff\xe0poster"
+        )
+        hass.data[const.DOMAIN]["runtimes"] = {"e1": runtime}
+        poster_view = roulette.SmartPlexPosterProxyView()
+        fake_req = types.SimpleNamespace(app={"hass": hass})
+        resp_bad = await poster_view.get(fake_req, "e1", "abc")
+        self.assertEqual(resp_bad["status"], 400)
+        resp_missing = await poster_view.get(fake_req, "e1", "999")
+        self.assertEqual(resp_missing["status"], 404)
+        resp_ok = await poster_view.get(fake_req, "e1", "20")
+        self.assertEqual(resp_ok["body"], b"\xff\xd8\xff\xe0poster")
+        self.assertEqual(resp_ok["content_type"], "image/jpeg")
+
+        # Bundled JS card asset exists, registers cleanly, uses return_response, and has neutral style names
+        js_asset = PKG_DIR / "frontend" / "smartplex-cards.js"
+        self.assertTrue(js_asset.is_file())
+        js_src = js_asset.read_text(encoding="utf-8")
+        self.assertIn("smartplex-roulette-card", js_src)
+        self.assertIn("smartplex-recent-card", js_src)
+        self.assertIn("getGridOptions", js_src)
+        self.assertIn("computeLabel", js_src)
+        self.assertIn("computeHelper", js_src)
+        self.assertIn("return_response: true", js_src)
+        self.assertIn("surface_style", js_src)
+        self.assertNotIn('title="Info"', js_src)
+        for forbidden in ("origami", "ios 27", "visionos", "liquid glass"):
+            self.assertNotIn(forbidden, js_src.lower())
+
+        # spin_roulette is registered with SupportsResponse.OPTIONAL so UI buttons work without return_response
+        await services.async_register_services(hass)
+        spin_meta = hass.services._registered[(const.DOMAIN, const.SERVICE_SPIN_ROULETTE)]
+        self.assertEqual(spin_meta["supports_response"], "optional")
+
+    def test_cleanup_legacy_zone_devices_preserves_main_controller(self) -> None:
+        """Registry cleanup deletes orphaned zone_* devices and media_player entities."""
+        import importlib.util
+        from unittest import mock
+
+        spec = importlib.util.spec_from_file_location(
+            "custom_components.plex_smart",
+            PKG_DIR / "__init__.py",
+            submodule_search_locations=[str(PKG_DIR)],
+        )
+        assert spec is not None and spec.loader is not None
+        init_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(init_mod)
+
+        removed_entities: list[str] = []
+        removed_devices: list[str] = []
+
+        fake_ent_reg = types.SimpleNamespace(
+            async_remove=lambda eid: removed_entities.append(eid)
+        )
+        fake_dev_reg = types.SimpleNamespace(
+            async_remove_device=lambda did: removed_devices.append(did)
+        )
+        fake_entities = [
+            types.SimpleNamespace(entity_id="sensor.smartplex_stats", domain="sensor"),
+            types.SimpleNamespace(entity_id="image.smartplex_roulette", domain="image"),
+            types.SimpleNamespace(entity_id="media_player.smartplex_zal", domain="media_player"),
+        ]
+        fake_devices = [
+            types.SimpleNamespace(
+                id="dev_main",
+                identifiers={(const.DOMAIN, "srv1")},
+                config_entries_subentries={"e1": {None}},
+            ),
+            types.SimpleNamespace(
+                id="dev_zone_zal",
+                identifiers={(const.DOMAIN, "zone_sub1")},
+                config_entries_subentries={"e1": {"sub1"}},
+            ),
+        ]
+        entry = types.SimpleNamespace(entry_id="e1")
+        with (
+            mock.patch.object(init_mod.er, "async_get", return_value=fake_ent_reg),
+            mock.patch.object(
+                init_mod.er, "async_entries_for_config_entry", return_value=fake_entities
+            ),
+            mock.patch.object(init_mod.dr, "async_get", return_value=fake_dev_reg),
+            mock.patch.object(
+                init_mod.dr, "async_entries_for_config_entry", return_value=fake_devices
+            ),
+        ):
+            init_mod._async_cleanup_legacy_zone_devices(object(), entry)
+
+        self.assertEqual(
+            removed_entities,
+            ["image.smartplex_roulette", "media_player.smartplex_zal"],
+        )
+        self.assertEqual(removed_devices, ["dev_zone_zal"])
 
 
 if __name__ == "__main__":

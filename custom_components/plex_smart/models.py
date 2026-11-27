@@ -40,6 +40,7 @@ class PlexMediaItem:
     view_count: int = 0
     view_offset_ms: int = 0
     last_viewed_at: int = 0
+    added_at: int = 0
     genres: tuple[str, ...] = ()
     actors: tuple[str, ...] = ()
     directors: tuple[str, ...] = ()
@@ -90,6 +91,7 @@ class PlexIndexData:
     playlists: list[PlexPlaylistItem] = field(default_factory=list)
     all_genres: list[str] = field(default_factory=list)
     active_sessions: list[PlexActiveSession] = field(default_factory=list)
+    recently_added: list[PlexMediaItem] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -124,3 +126,4 @@ class PlexSmartRuntimeData:
     active_zone_tasks: dict[str, asyncio.Task[object]] = field(default_factory=dict)
     saved_resume_offsets: dict[int, int] = field(default_factory=dict)
     playback_anchors: dict[int, tuple[float, int, str]] = field(default_factory=dict)
+    last_roulette_result: dict[str, object] | None = None

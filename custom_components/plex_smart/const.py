@@ -5,7 +5,10 @@ from __future__ import annotations
 from homeassistant.const import Platform
 
 DOMAIN = "plex_smart"
-PLATFORMS: list[Platform] = [Platform.BUTTON, Platform.SENSOR]
+PLATFORMS: list[Platform] = [
+    Platform.BUTTON,
+    Platform.SENSOR,
+]
 
 LLM_API_ID = "plex_smart"
 LLM_API_NAME = "SmartPlex"
@@ -263,12 +266,18 @@ REPEAT_MODES: tuple[str, ...] = ("off", "one", "all")
 
 # Dispatcher signals
 SIGNAL_LAST_LAUNCH_UPDATED = f"{DOMAIN}_last_launch_updated"
+SIGNAL_ROULETTE_UPDATED = f"{DOMAIN}_roulette_updated"
+RECENTLY_ADDED_LIMIT = 12
 
 # States considered offline / ready for Plex clients
 OFFLINE_CLIENT_STATES = frozenset({"unavailable", "unknown", "off"})
 ACTIVE_PLAYBACK_STATES = frozenset({"playing", "buffering", "paused"})
 
-# HTTP View for roulette collage images
+# HTTP Views & bundled Lovelace frontend cards
 ROULETTE_IMAGE_URL_PREFIX = "/api/plex_smart/roulette"
 ROULETTE_MAX_CACHED_IMAGES = 10
 ROULETTE_IMAGE_SIGN_TTL_SEC = 300
+POSTER_PROXY_URL_PREFIX = "/api/plex_smart/poster"
+POSTER_MAX_CACHED_IMAGES = 64
+FRONTEND_JS_URL_PATH = "/plex_smart_frontend/smartplex-cards.js"
+FRONTEND_CARD_VERSION = "1.1.0"

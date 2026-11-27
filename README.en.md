@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/hacs/integration"><img alt="HACS Default" src="badges/hacs.svg" /></a>
-  <img alt="Release v1.0.3" src="badges/release.svg" />
+  <img alt="Release v1.1.0" src="badges/release.svg" />
   <a href="https://www.home-assistant.io/"><img alt="Home Assistant 2026.9+" src="badges/home_assistant.svg" /></a>
   <a href="https://developer.plex.tv/pms/"><img alt="Plex OpenAPI v1.2.3" src="badges/plex_api.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="badges/license.svg" /></a>
@@ -83,6 +83,7 @@ SmartPlex is provider-agnostic — pick your LLM based on **tool-calling reliabi
 * 🔄 **Seamless Bidirectional Cross-Room Handoff (`plex_smart.handoff`):** Say *“Move the movie from living room to bedroom”* or *“Switch it back to the living room”* — SmartPlex captures the live position before power-off, **turns off the previous TV**, wakes the target TV, and resumes from the exact timestamp (with a 5-second overlap rewind and strict per-zone `machine_id` session isolation).
 * ⏯ **Hardware-Aware Playback Control & Seek (`plex_smart.control`):** *pause*, smart *resume* (unpauses in-place without restarting from `0:00`), *stop*, *seek forward/backward (±5–10s / N min)*, *jump to timestamp* (*“seek to minute 30”*), *restart from `0:00`*, *next/previous*, *repeat (`off`/`one`/`all`)*, and *shuffle*. Full command catalog & YAML examples: **[📖 Commands Reference (`docs/COMMANDS.en.md`)](docs/COMMANDS.en.md)**.
 * 🎲 **Configurable Movie Roulette (`plex_smart.spin_roulette`):** Renders a numbered `Pillow` poster collage in memory and serves it over an authenticated HTTP view using short-lived signed URLs (`async_sign_path`, zero `/config/www` disk writes, zero Plex token exposure, no `allowlist_external_dirs` needed), returns native inline keyboards for **Telegram Bot** (`telegram_inline_keyboard`) and **VK Notify** (`vk_keyboard`), and ships with ready-to-use **HA Blueprints** in [`blueprints/automation/Eugen417/`](blueprints/automation/Eugen417/) plus YAML examples in [`examples/en/`](examples/en/README.md).
+* 🖼 **Two Built-in Lovelace Dashboard Cards:** Independent **SmartPlex: Movie Roulette** (`custom:smartplex-roulette-card`) and **SmartPlex: Recently Added** (`custom:smartplex-recent-card`) cards with frosted-glass styling, inline zone selector, 3 layouts (*Poster Shelf / Poster Grid / Compact List*), native 3–12 column Section drag-resizing, and 1-tap poster playback — no external HACS frontend plugins needed.
 * 🔒 **Privacy & Localization:** Neutral replies in your Home Assistant language (EN / RU) with an optional custom greeting (`user_title`), plus automatic redaction of tokens, LAN IPs, and `*.plex.direct` hosts in logs and diagnostics (`privacy.py`, `diagnostics.py`).
 
 ---
@@ -149,6 +150,18 @@ Modern TV and set-top-box Plex clients suffer from platform quirks that break na
 
 ---
 
+## 🖼 Built-in Dashboard Cards (Lovelace UI)
+
+SmartPlex ships **two independent, compact Lovelace cards** right inside the integration package (no third-party HACS frontend plugins required — both cards appear directly in Home Assistant's **Add Card** dialog with a visual configuration form):
+
+* **`SmartPlex: Movie Roulette` (`custom:smartplex-roulette-card`)** — interactive movie showcase with an inline zone selector, `🎲` reroll button, expandable `i` movie details, single-row collapse toggle, and 1-tap playback right from any poster.
+* **`SmartPlex: Recently Added` (`custom:smartplex-recent-card`)** — live showcase of the latest movies and shows added to Plex with individual posters and 1-tap playback.
+* **Flexible Styling & Resizing:** choose between *Poster Shelf*, *Poster Grid*, and *Compact List* layouts, *Frosted Glass*, *Dark Acrylic*, or *Theme Default* surface styles, adjustable poster height (`84–240 px`), and native drag-to-resize from **3 to 12 columns** in Home Assistant Sections (sample YAML: [`examples/lovelace_ui_cards.yaml`](examples/lovelace_ui_cards.yaml)).
+
+> 💡 **Browser / Companion App Cache:** after installing or updating SmartPlex, hard-refresh your browser tab (**`Ctrl+F5`** on Windows/Linux or **`Cmd+Shift+R`** on macOS) — or tap *Settings → Companion App → Debugging → Reset frontend cache* in the Home Assistant mobile app — so the latest card bundle loads cleanly.
+
+---
+
 ## 🛠 Services
 
 | Service | Description |
@@ -157,7 +170,7 @@ Modern TV and set-top-box Plex clients suffer from platform quirks that break na
 | `plex_smart.play` | Structured start or resume (`resume: true`) for movies, shows, seasons, episodes, tracks, albums, playlists, multi-actor collaborations (`actors`), `similar_to`, and explicit `offset_sec`. |
 | `plex_smart.handoff` | Transfer active playback to another media zone (optionally turning off the source TV), resume `Continue Watching`, or unpause in-place. |
 | `plex_smart.control` | Control active playback: pause, unpause, stop, restart from `0:00`, relative seek (`seek_relative`), exact timestamp (`seek_to`), `next`/`previous`, repeat (`set_repeat`), and shuffle (`set_shuffle`). |
-| `plex_smart.spin_roulette` | Pick filtered movies, render a numbered poster collage, and return Telegram & VK inline keyboards (`SupportsResponse.ONLY`). |
+| `plex_smart.spin_roulette` | Pick filtered movies, update the UI showcase, render a numbered poster collage, and return Telegram & VK inline keyboards (`SupportsResponse.OPTIONAL`). |
 | `plex_smart.refresh_cache` | Immediately re-index all Plex libraries, cast tags, genres, and playlists in memory. |
 
 👉 **Full voice commands & YAML services reference:** [`docs/COMMANDS.en.md`](docs/COMMANDS.en.md) | [`examples/en/README.md`](examples/en/README.md).

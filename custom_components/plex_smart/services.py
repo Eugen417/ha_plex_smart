@@ -1741,7 +1741,7 @@ async def async_register_services(hass: HomeAssistant) -> None:
         SERVICE_SPIN_ROULETTE,
         _handle_spin_roulette,
         schema=ROULETTE_SCHEMA,
-        supports_response=SupportsResponse.ONLY,
+        supports_response=SupportsResponse.OPTIONAL,
     )
     hass.services.async_register(
         DOMAIN,

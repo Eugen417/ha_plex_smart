@@ -15,7 +15,12 @@ import aiohttp
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import PLEX_CLIENT_IDENTIFIER, PLEX_PRODUCT_NAME, SEEK_PROXY_TIMEOUT_SEC
+from .const import (
+    PLEX_CLIENT_IDENTIFIER,
+    PLEX_PRODUCT_NAME,
+    RECENTLY_ADDED_LIMIT,
+    SEEK_PROXY_TIMEOUT_SEC,
+)
 from .models import (
     PlexActiveSession,
     PlexIndexData,
@@ -279,6 +284,7 @@ class PlexApiClient:
             view_count=_safe_int(raw.get("viewCount")),
             view_offset_ms=_safe_int(raw.get("viewOffset")),
             last_viewed_at=_safe_int(raw.get("lastViewedAt")),
+            added_at=_safe_int(raw.get("addedAt")),
             genres=tuple(genres),
             actors=tuple(actors),
             directors=tuple(directors),
@@ -386,6 +392,14 @@ class PlexApiClient:
             _LOGGER.debug("Failed to fetch playlists: %s", redact_sensitive_text(err))
 
         index.all_genres = sorted(all_genres_set)
+        video_pool = [
+            *index.items_by_type.get("movie", []),
+            *index.items_by_type.get("show", []),
+        ]
+        video_pool.sort(
+            key=lambda it: (it.added_at, it.rating_key), reverse=True
+        )
+        index.recently_added = video_pool[:RECENTLY_ADDED_LIMIT]
         return index
 
     async def async_get_active_sessions(self) -> list[PlexActiveSession]:

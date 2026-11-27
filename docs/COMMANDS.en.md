@@ -146,3 +146,14 @@ Enabling **SmartPlex** in your Assist conversation agent exposes 4 native tools:
 3. `plex_smart_control` — pause, unpause, stop, relative/absolute seek, restart, next/previous, repeat, and shuffle.
 4. `plex_smart_search` — read-only library & Continue Watching search without waking any TV.
 
+---
+
+## 🖼 8. Built-in Lovelace Dashboard Cards
+
+SmartPlex bundles **two independent, freely resizable Lovelace cards** directly inside the integration (available right in Home Assistant's **Add Card** picker with a visual UI editor and 3–12 column Section drag-resizing — no third-party HACS plugins required):
+* `custom:smartplex-roulette-card` — **SmartPlex: Movie Roulette**: *Poster Shelf / Poster Grid / Compact List* layouts, *Frosted Glass / Dark Acrylic / Theme Default* surface styles, inline zone selector, `🎲` reroll button, collapsible compact bar, and 1-tap poster playback.
+* `custom:smartplex-recent-card` — **SmartPlex: Recently Added**: compact showcase of the newest movies and shows in Plex with expandable `i` details and 1-tap playback.
+* **Browser / App Cache Note:** after installing or updating SmartPlex, perform a hard refresh in your browser (**`Ctrl+F5`** on Windows/Linux or **`Cmd+Shift+R`** on macOS) — or choose *Settings → Companion App → Debugging → Reset frontend cache* in the Home Assistant mobile app — so the latest card bundle loads immediately.
+* Sample YAML configurations: [`../examples/lovelace_ui_cards.yaml`](../examples/lovelace_ui_cards.yaml).
+
+

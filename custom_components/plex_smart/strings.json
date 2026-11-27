@@ -247,6 +247,9 @@
     "button": {
       "refresh_cache": {
         "name": "Refresh library cache"
+      },
+      "spin_roulette": {
+        "name": "Spin movie roulette"
       }
     },
     "sensor": {
@@ -255,6 +258,9 @@
       },
       "active_sessions": {
         "name": "Active Plex sessions"
+      },
+      "recently_added": {
+        "name": "Recently added"
       },
       "last_launch": {
         "name": "Last launch status"

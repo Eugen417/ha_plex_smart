@@ -20,6 +20,7 @@ from homeassistant.components.http import HomeAssistantView
 from homeassistant.components.http.auth import async_sign_path
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 from homeassistant.helpers.storage import Store
 
 from .const import (
@@ -48,16 +49,24 @@ from .const import (
     DEFAULT_WATCH_FILTER,
     DEFAULT_YEAR_FROM,
     DOMAIN,
+    POSTER_MAX_CACHED_IMAGES,
+    POSTER_PROXY_URL_PREFIX,
     ROULETTE_IMAGE_SIGN_TTL_SEC,
     ROULETTE_IMAGE_URL_PREFIX,
     ROULETTE_MAX_CACHED_IMAGES,
+    SIGNAL_ROULETTE_UPDATED,
     WATCH_FILTER_ANY,
     WATCH_FILTER_IN_PROGRESS,
     WATCH_FILTER_UNWATCHED,
     WATCH_FILTER_WATCHED,
 )
 from .models import PlexMediaItem
-from .search import normalize_title, resolve_roulette_preset, resolve_zone
+from .search import (
+    get_zone_subentries,
+    normalize_title,
+    resolve_roulette_preset,
+    resolve_zone,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -345,6 +354,61 @@ class SmartPlexRouletteImageView(HomeAssistantView):
         )
 
 
+class SmartPlexPosterProxyView(HomeAssistantView):
+    """Authenticated individual poster proxy for SmartPlex Lovelace cards."""
+
+    url = f"{POSTER_PROXY_URL_PREFIX}/{{entry_id}}/{{rating_key}}.jpg"
+    name = "api:plex_smart:poster"
+    requires_auth = True
+
+    def __init__(self) -> None:
+        self._cache: OrderedDict[tuple[str, int], bytes] = OrderedDict()
+
+    async def get(
+        self, request: web.Request, entry_id: str, rating_key: str
+    ) -> web.Response:
+        if not rating_key.isdigit():
+            return web.Response(status=400, text="Invalid rating_key")
+        rk = int(rating_key)
+        cache_key = (entry_id, rk)
+        cached = self._cache.get(cache_key)
+        if cached is not None:
+            self._cache.move_to_end(cache_key)
+            return web.Response(
+                body=cached,
+                content_type="image/jpeg",
+                headers={"Cache-Control": "private, max-age=3600"},
+            )
+
+        hass: HomeAssistant = request.app["hass"]
+        runtimes_map = hass.data.get(DOMAIN, {}).get("runtimes", {})
+        runtime = runtimes_map.get(entry_id)
+        if runtime is None and entry_id == "default" and runtimes_map:
+            runtime = next(iter(runtimes_map.values()))
+        if runtime is None:
+            return web.Response(status=404, text="Server entry not found")
+
+        index = runtime.coordinator.data
+        item = index.items_by_key.get(rk) if index else None
+        if item is None:
+            return web.Response(status=404, text="Poster not found")
+        thumb_path = item.thumb or f"/library/metadata/{rk}/thumb"
+
+        raw = await runtime.api.async_fetch_poster_bytes(thumb_path)
+        if not raw:
+            return web.Response(status=404, text="Empty poster")
+
+        self._cache[cache_key] = raw
+        while len(self._cache) > POSTER_MAX_CACHED_IMAGES:
+            self._cache.popitem(last=False)
+
+        return web.Response(
+            body=raw,
+            content_type="image/jpeg",
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
+
+
 def _format_duration_human(duration_ms: int, is_ru: bool) -> str:
     if duration_ms <= 0:
         return ""
@@ -513,6 +577,29 @@ def build_roulette_keyboards(
     return vk_keyboard_json, tg_rows
 
 
+async def async_render_items_collage(
+    hass: HomeAssistant,
+    runtime: Any,
+    items: list[PlexMediaItem],
+    layout: str = DEFAULT_COLLAGE_LAYOUT,
+) -> bytes:
+    """Fetch posters concurrently and render a numbered JPEG showcase in executor."""
+    import asyncio
+
+    poster_bytes_list = await asyncio.gather(
+        *(runtime.api.async_fetch_poster_bytes(it.thumb) for it in items)
+    )
+    collage_inputs = [
+        (p_bytes, idx, it.title, it.rating)
+        for idx, (it, p_bytes) in enumerate(
+            zip(items, poster_bytes_list, strict=True), start=1
+        )
+    ]
+    return await hass.async_add_executor_job(
+        build_poster_collage_sync, collage_inputs, layout
+    )
+
+
 async def async_spin_roulette(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -569,9 +656,16 @@ async def async_spin_roulette(
         excluded_keys=excluded_keys,
     )
 
+    all_zones = [
+        str(z.data.get(CONF_ZONE_NAME) or z.title)
+        for z in get_zone_subentries(entry)
+    ]
+
     if not candidates:
         return {
             "success": False,
+            "entry_id": entry.entry_id,
+            "zones": all_zones,
             "zone": zone_name,
             "preset": preset_name,
             "pick_count": 0,
@@ -593,18 +687,7 @@ async def async_spin_roulette(
         [it.rating_key for it in picked], keep_days=max(anti_days, 14)
     )
 
-    poster_bytes_list = await asyncio.gather(
-        *(runtime.api.async_fetch_poster_bytes(it.thumb) for it in picked)
-    )
-    collage_inputs = [
-        (p_bytes, idx, it.title, it.rating)
-        for idx, (it, p_bytes) in enumerate(
-            zip(picked, poster_bytes_list, strict=True), start=1
-        )
-    ]
-    jpeg_bytes = await hass.async_add_executor_job(
-        build_poster_collage_sync, collage_inputs, layout
-    )
+    jpeg_bytes = await async_render_items_collage(hass, runtime, picked, layout)
 
     view: SmartPlexRouletteImageView | None = hass.data.get(DOMAIN, {}).get(
         "roulette_view"
@@ -640,13 +723,16 @@ async def async_spin_roulette(
             {
                 "index": idx,
                 "rating_key": it.rating_key,
+                "media_type": it.media_type,
                 "title": it.title,
                 "year": it.year,
                 "rating": it.rating,
-                "genres": list(it.genres),
+                "library": it.library_title,
+                "genres": list(it.genres[:3]),
                 "duration_min": int(round(it.duration_ms / 60000.0))
                 if it.duration_ms
                 else 0,
+                "summary": (it.summary or "")[:220],
             }
         )
 
@@ -659,8 +745,10 @@ async def async_spin_roulette(
         zone_id=zone.subentry_id if zone else None,
         preset_id=preset.subentry_id if preset else None,
     )
-    return {
+    result = {
         "success": True,
+        "entry_id": entry.entry_id,
+        "zones": all_zones,
         "zone": zone_name,
         "preset": preset_name,
         "pick_count": len(picked),
@@ -672,6 +760,9 @@ async def async_spin_roulette(
         "vk_inline_keyboard": vk_kb,
         "telegram_inline_keyboard": tg_kb,
     }
+    setattr(runtime, "last_roulette_result", result)
+    async_dispatcher_send(hass, f"{SIGNAL_ROULETTE_UPDATED}_{entry.entry_id}")
+    return result
 
 
 

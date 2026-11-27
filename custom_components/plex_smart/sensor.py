@@ -14,13 +14,16 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CONF_IS_DEFAULT,
+    CONF_ROULETTE_NAME,
     CONF_SERVER_ID,
     CONF_SERVER_NAME,
+    CONF_ZONE_NAME,
     DOMAIN,
     SIGNAL_LAST_LAUNCH_UPDATED,
 )
 from .coordinator import SmartPlexCoordinator
-from .models import PlexSmartRuntimeData
+from .models import PlexMediaItem, PlexSmartRuntimeData
 from .search import get_roulette_subentries, get_zone_subentries
 
 
@@ -35,6 +38,7 @@ async def async_setup_entry(
         [
             SmartPlexLibraryStatsSensor(entry, runtime.coordinator),
             SmartPlexActiveSessionsSensor(entry, runtime.coordinator),
+            SmartPlexRecentlyAddedSensor(entry, runtime.coordinator),
             SmartPlexLastLaunchSensor(entry),
         ]
     )
@@ -51,6 +55,56 @@ def build_service_device_info(entry: ConfigEntry) -> DeviceInfo:
         model="SmartPlex Controller",
         entry_type=DeviceEntryType.SERVICE,
     )
+
+
+def build_ui_entry_meta(entry: ConfigEntry) -> dict[str, Any]:
+    """Build common metadata for bundled SmartPlex Lovelace cards."""
+    zones_subs = get_zone_subentries(entry)
+    zones: list[str] = []
+    default_zone = ""
+    for z in zones_subs:
+        z_name = str(z.data.get(CONF_ZONE_NAME) or z.title)
+        if z_name and z_name not in zones:
+            zones.append(z_name)
+        if not default_zone and z.data.get(CONF_IS_DEFAULT):
+            default_zone = z_name
+    if not default_zone and zones:
+        default_zone = zones[0]
+
+    presets = [
+        str(p.data.get(CONF_ROULETTE_NAME) or p.title)
+        for p in get_roulette_subentries(entry)
+    ]
+    return {
+        "entry_id": entry.entry_id,
+        "server_name": str(entry.data.get(CONF_SERVER_NAME) or entry.title),
+        "zones": zones,
+        "default_zone": default_zone,
+        "presets": presets,
+    }
+
+
+def serialize_ui_media_items(
+    items: list[PlexMediaItem], limit: int = 10
+) -> list[dict[str, Any]]:
+    """Serialize PlexMediaItems for bundled Lovelace cards."""
+    return [
+        {
+            "index": idx,
+            "rating_key": it.rating_key,
+            "media_type": it.media_type,
+            "title": it.title,
+            "year": it.year,
+            "rating": it.rating,
+            "library": it.library_title,
+            "genres": list(it.genres[:3]),
+            "duration_min": int(round(it.duration_ms / 60000.0))
+            if it.duration_ms
+            else 0,
+            "summary": (it.summary or "")[:220],
+        }
+        for idx, it in enumerate(items[:limit], start=1)
+    ]
 
 
 class SmartPlexLibraryStatsSensor(
@@ -196,4 +250,42 @@ class SmartPlexLastLaunchSensor(SensorEntity):
             "message": res.message,
             "suggestions": res.suggestions,
         }
+
+
+class SmartPlexRecentlyAddedSensor(
+    CoordinatorEntity[SmartPlexCoordinator], SensorEntity
+):
+    """Latest added movie/show in Plex with top-8 items list for Lovelace UI cards."""
+
+    _attr_has_entity_name = True
+    _attr_translation_key = "recently_added"
+    _attr_icon = "mdi:movie-open-plus"
+
+    def __init__(self, entry: ConfigEntry, coordinator: SmartPlexCoordinator) -> None:
+        super().__init__(coordinator)
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_recently_added"
+        self._attr_device_info = build_service_device_info(entry)
+
+    @property
+    def native_value(self) -> str:
+        data = self.coordinator.data
+        recent = data.recently_added if data else []
+        if not recent:
+            return "empty"
+        top = recent[0]
+        label = f"{top.title} ({top.year})" if top.year else top.title
+        return label[:250]
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        data = self.coordinator.data
+        recent = data.recently_added if data else []
+        return {
+            **build_ui_entry_meta(self._entry),
+            "ui_card_kind": "recent",
+            "count": len(recent),
+            "items": serialize_ui_media_items(recent, limit=10),
+        }
+
 

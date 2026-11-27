@@ -1,4 +1,28 @@
 {
+  "entity": {
+    "button": {
+      "refresh_cache": {
+        "default": "mdi:database-refresh"
+      },
+      "spin_roulette": {
+        "default": "mdi:dice-multiple"
+      }
+    },
+    "sensor": {
+      "library_stats": {
+        "default": "mdi:filmstrip-box-multiple"
+      },
+      "active_sessions": {
+        "default": "mdi:television-play"
+      },
+      "recently_added": {
+        "default": "mdi:movie-open-plus"
+      },
+      "last_launch": {
+        "default": "mdi:rocket-launch"
+      }
+    }
+  },
   "services": {
     "command": {
       "service": "mdi:robot-excited"

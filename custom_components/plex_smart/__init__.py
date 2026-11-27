@@ -4,10 +4,16 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers import config_validation as cv, llm
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+    llm,
+)
 
 from .api import PlexApiClient
 from .const import (
@@ -16,12 +22,18 @@ from .const import (
     CONF_VERIFY_SSL,
     DEFAULT_VERIFY_SSL,
     DOMAIN,
+    FRONTEND_CARD_VERSION,
+    FRONTEND_JS_URL_PATH,
     PLATFORMS,
 )
 from .coordinator import SmartPlexCoordinator
 from .llm_api import SmartPlexLLMAPI
 from .models import PlexSmartRuntimeData
-from .roulette import RouletteHistoryStore, SmartPlexRouletteImageView
+from .roulette import (
+    RouletteHistoryStore,
+    SmartPlexPosterProxyView,
+    SmartPlexRouletteImageView,
+)
 from .services import async_register_services, async_unregister_services
 
 _LOGGER = logging.getLogger(__name__)
@@ -33,14 +45,73 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
+def _async_cleanup_legacy_zone_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove orphaned legacy entities (media_player, image) and zone devices."""
+    ent_reg = er.async_get(hass)
+    for ent in list(er.async_entries_for_config_entry(ent_reg, entry.entry_id)):
+        if ent.domain in ("media_player", "image"):
+            ent_reg.async_remove(ent.entity_id)
+
+    dev_reg = dr.async_get(hass)
+    for dev in list(dr.async_entries_for_config_entry(dev_reg, entry.entry_id)):
+        is_legacy_zone_dev = any(
+            dom == DOMAIN and str(ident).startswith("zone_")
+            for dom, ident in getattr(dev, "identifiers", set())
+        )
+        sub_links = getattr(dev, "config_entries_subentries", {}).get(entry.entry_id)
+        has_only_subentry_links = (
+            bool(sub_links)
+            and any(sub_id is not None for sub_id in sub_links)
+            and None not in sub_links
+        )
+        if is_legacy_zone_dev or has_only_subentry_links:
+            dev_reg.async_remove_device(dev.id)
+
+
+async def _async_register_frontend_cards(
+    hass: HomeAssistant, domain_data: dict[str, object]
+) -> None:
+    """Register bundled SmartPlex Lovelace cards without writing to /config/www."""
+    if domain_data.get("frontend_registered"):
+        return
+    js_file = Path(__file__).parent / "frontend" / "smartplex-cards.js"
+    if not js_file.is_file():
+        return
+    try:
+        from homeassistant.components.frontend import add_extra_js_url
+        from homeassistant.components.http import StaticPathConfig
+
+        await hass.http.async_register_static_paths(
+            [
+                StaticPathConfig(
+                    FRONTEND_JS_URL_PATH,
+                    str(js_file),
+                    cache_headers=False,
+                )
+            ]
+        )
+        add_extra_js_url(hass, f"{FRONTEND_JS_URL_PATH}?v={FRONTEND_CARD_VERSION}")
+        domain_data["frontend_registered"] = True
+    except Exception as err:  # noqa: BLE001
+        _LOGGER.warning("Could not register SmartPlex Lovelace cards: %s", err)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up SmartPlex from a config entry."""
+    _async_cleanup_legacy_zone_devices(hass, entry)
     domain_data = hass.data.setdefault(DOMAIN, {})
 
     if "roulette_view" not in domain_data:
         view = SmartPlexRouletteImageView()
         hass.http.register_view(view)
         domain_data["roulette_view"] = view
+
+    if "poster_view" not in domain_data:
+        poster_view = SmartPlexPosterProxyView()
+        hass.http.register_view(poster_view)
+        domain_data["poster_view"] = poster_view
+
+    await _async_register_frontend_cards(hass, domain_data)
 
     api = PlexApiClient(
         hass=hass,

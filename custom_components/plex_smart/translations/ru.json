@@ -247,6 +247,9 @@
     "button": {
       "refresh_cache": {
         "name": "Обновить кэш медиатеки"
+      },
+      "spin_roulette": {
+        "name": "Крутить Кинорулетку"
       }
     },
     "sensor": {
@@ -255,6 +258,9 @@
       },
       "active_sessions": {
         "name": "Активные сессии Plex"
+      },
+      "recently_added": {
+        "name": "Недавно добавленные"
       },
       "last_launch": {
         "name": "Статус последнего запуска"
