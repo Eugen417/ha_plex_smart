@@ -1,5 +1,5 @@
 <p align="center">
-  <img width="150" alt="SmartPlex Logo" src="custom_components/plex_smart/icon@2x.png" />
+  <img width="150" alt="SmartPlex Logo" src="custom_components/plex_smart/brand/icon@2x.png" />
 </p>
 
 <h1 align="center">SmartPlex Integration for Home Assistant</h1>
@@ -7,7 +7,7 @@
 
 <p align="center">
   <a href="https://github.com/hacs/integration"><img alt="HACS" src="badges/hacs.svg" /></a>
-  <img alt="Release v1.0.1" src="badges/release.svg" />
+  <img alt="Release v1.0.2" src="badges/release.svg" />
   <a href="https://www.home-assistant.io/"><img alt="Home Assistant 2026.9+" src="badges/home_assistant.svg" /></a>
   <a href="https://developer.plex.tv/pms/"><img alt="Plex OpenAPI v1.2.3" src="badges/plex_api.svg" /></a>
   <a href="LICENSE"><img alt="License: MIT" src="badges/license.svg" /></a>

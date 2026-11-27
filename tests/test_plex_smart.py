@@ -435,7 +435,7 @@ class TestSearchAndI18n(unittest.TestCase):
         manifest = json.loads((PKG_DIR / "manifest.json").read_text(encoding="utf-8"))
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["domain"], "plex_smart")
-        self.assertEqual(manifest["version"], "1.0.1")
+        self.assertEqual(manifest["version"], "1.0.2")
         manifest_keys = list(manifest.keys())
         self.assertEqual(
             manifest_keys,
@@ -452,13 +452,17 @@ class TestSearchAndI18n(unittest.TestCase):
         self.assertEqual(hacs["homeassistant"], "2026.9.0")
         self.assertTrue(hacs["zip_release"])
         self.assertEqual(hacs["filename"], "plex_smart.zip")
+        self.assertTrue((PKG_DIR / "brand" / "icon.png").is_file())
+        self.assertTrue((PKG_DIR / "brand" / "icon@2x.png").is_file())
+        self.assertFalse((PKG_DIR / "icon.png").exists())
+        self.assertFalse((PKG_DIR / "icon@2x.png").exists())
 
-        # Every PNG in repo (icons + docs screenshots) must be stripped of EXIF/XMP/iCCP/tEXt
+        # Every PNG in repo (brand icons + docs screenshots) must be stripped of EXIF/XMP/iCCP/tEXt
         import struct
 
         allowed_chunks = {b"IHDR", b"PLTE", b"tRNS", b"IDAT", b"IEND"}
         png_files = list(ROOT.rglob("*.png"))
-        self.assertGreaterEqual(len(png_files), 12)
+        self.assertGreaterEqual(len(png_files), 10)
         for pf in png_files:
             raw = pf.read_bytes()
             self.assertEqual(raw[:8], b"\x89PNG\r\n\x1a\n", str(pf))
