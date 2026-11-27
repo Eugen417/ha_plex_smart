@@ -6,7 +6,7 @@
 <h3 align="center">Smart Plex Media Server Orchestration, TV Wake Pipeline, Assist LLM API & Movie Roulette</h3>
 
 <p align="center">
-  <a href="https://github.com/hacs/integration"><img alt="HACS" src="badges/hacs.svg" /></a>
+  <a href="https://github.com/hacs/integration"><img alt="HACS Default" src="badges/hacs.svg" /></a>
   <img alt="Release v1.0.2" src="badges/release.svg" />
   <a href="https://www.home-assistant.io/"><img alt="Home Assistant 2026.9+" src="badges/home_assistant.svg" /></a>
   <a href="https://developer.plex.tv/pms/"><img alt="Plex OpenAPI v1.2.3" src="badges/plex_api.svg" /></a>
