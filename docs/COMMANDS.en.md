@@ -1,4 +1,4 @@
-# 📖 SmartPlex Commands & Services Reference (`v1.0.2`)
+# 📖 SmartPlex Commands & Services Reference (`v1.0.3`)
 
 <p align="left">
   <a href="COMMANDS.md">🇷🇺 Русский</a> | <b>🇬🇧 English</b> | <a href="../README.en.md">⬅ Back to README</a>

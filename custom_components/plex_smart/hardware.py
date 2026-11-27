@@ -20,6 +20,8 @@ from homeassistant.util import dt as dt_util
 
 from .const import (
     ACTIVE_PLAYBACK_STATES,
+    ATV_COLD_MIN_CARD_DELAY_SEC,
+    ATV_WARM_MIN_CARD_DELAY_SEC,
     CONF_APP_SOURCE,
     CONF_AREA_ID,
     CONF_ATV_AUTO_SELECT,
@@ -1072,6 +1074,7 @@ async def async_play_apple_tv_deeplink(
     media_content_type: str,
     *,
     api: Any = None,
+    start_phase: str | None = None,
 ) -> tuple[bool, int, str]:
     """Launch media on Apple TV (Plex 2026.20+) via verified deep link + server progress sync."""
     server_id = str(entry_data.get(CONF_SERVER_ID) or "").strip()
@@ -1088,6 +1091,9 @@ async def async_play_apple_tv_deeplink(
 
     # 1. On cold wake, wait for Apple TV to report awake so pyatv self.atv is connected
     hw_st = hass.states.get(hw_entity)
+    was_cold = (start_phase == START_PHASE_COLD) or (
+        hw_st is None or hw_st.state in _HW_OFF_STATES
+    )
     if hw_st is None or hw_st.state in _HW_OFF_STATES:
         cold_wait = min(8.0, _zone_timing(zone_data, CONF_COLD_BOOT_TIMEOUT, "boot_delay"))
         if cold_wait > 0:
@@ -1123,7 +1129,20 @@ async def async_play_apple_tv_deeplink(
             await api.async_set_playback_progress(plex_key, offset_sec * 1000)
 
     deeplink = build_apple_tv_deeplink(server_id, plex_key, is_show_root=is_show_root)
-    card_delay = _zone_timing(zone_data, CONF_WARM_APP_DELAY)
+    if was_cold:
+        raw_cold_delay = _zone_timing(zone_data, CONF_COLD_APP_DELAY, "app_load_delay")
+        card_delay = (
+            max(raw_cold_delay, ATV_COLD_MIN_CARD_DELAY_SEC)
+            if raw_cold_delay >= 1.0
+            else raw_cold_delay
+        )
+    else:
+        raw_warm_delay = _zone_timing(zone_data, CONF_WARM_APP_DELAY)
+        card_delay = (
+            max(raw_warm_delay, ATV_WARM_MIN_CARD_DELAY_SEC)
+            if raw_warm_delay >= 1.0
+            else raw_warm_delay
+        )
     app_source = str(zone_data.get(CONF_APP_SOURCE) or DEFAULT_APP_SOURCE).strip()
 
     # 4. Guard against misconfigured hw_entity (e.g. TV entity selected instead of Apple TV box)
@@ -2174,6 +2193,7 @@ async def async_play_on_zone_with_retry(
     media_content_type: str,
     *,
     api: Any = None,
+    start_phase: str | None = None,
 ) -> tuple[bool, int, str]:
     """Send media_player.play_media using native plex:// URI (or Apple TV deep link) with retries.
 
@@ -2189,7 +2209,13 @@ async def async_play_on_zone_with_retry(
         _, hw_entity, _ = resolve_zone_hardware(hass, zone_data)
         if hw_entity and entry_data.get(CONF_SERVER_ID):
             return await async_play_apple_tv_deeplink(
-                hass, entry_data, zone_data, payload, media_content_type, api=api
+                hass,
+                entry_data,
+                zone_data,
+                payload,
+                media_content_type,
+                api=api,
+                start_phase=start_phase,
             )
 
     if plex_client:
@@ -2914,7 +2940,13 @@ async def async_handoff_or_resume(
             exclude_titles=exclude_titles,
         )
         ok, retries, play_err = await async_play_on_zone_with_retry(
-            hass, entry.data, target_data, payload, content_type, api=api
+            hass,
+            entry.data,
+            target_data,
+            payload,
+            content_type,
+            api=api,
+            start_phase=start_phase,
         )
         if power_off_task is not None and not power_off_task.done():
             await asyncio.wait({power_off_task}, timeout=3.0)
@@ -3091,7 +3123,13 @@ async def async_handoff_or_resume(
                 exclude_titles=fb_exclude_titles,
             )
             ok, retries, play_err = await async_play_on_zone_with_retry(
-                hass, entry.data, target_data, ll_payload, ll_ctype, api=api
+                hass,
+                entry.data,
+                target_data,
+                ll_payload,
+                ll_ctype,
+                api=api,
+                start_phase=start_phase,
             )
             if fb_power_off_task is not None and not fb_power_off_task.done():
                 await asyncio.wait({fb_power_off_task}, timeout=3.0)
@@ -3178,7 +3216,13 @@ async def async_handoff_or_resume(
         exclude_titles=fb_exclude_titles,
     )
     ok, retries, play_err = await async_play_on_zone_with_retry(
-        hass, entry.data, target_data, payload, content_type, api=api
+        hass,
+        entry.data,
+        target_data,
+        payload,
+        content_type,
+        api=api,
+        start_phase=start_phase,
     )
     if fb_power_off_task is not None and not fb_power_off_task.done():
         await asyncio.wait({fb_power_off_task}, timeout=3.0)

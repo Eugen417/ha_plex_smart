@@ -435,7 +435,7 @@ class TestSearchAndI18n(unittest.TestCase):
         manifest = json.loads((PKG_DIR / "manifest.json").read_text(encoding="utf-8"))
         hacs = json.loads((ROOT / "hacs.json").read_text(encoding="utf-8"))
         self.assertEqual(manifest["domain"], "plex_smart")
-        self.assertEqual(manifest["version"], "1.0.2")
+        self.assertEqual(manifest["version"], "1.0.3")
         manifest_keys = list(manifest.keys())
         self.assertEqual(
             manifest_keys,
@@ -3434,6 +3434,121 @@ class TestV1020ReverseHandoffAndControl(unittest.IsolatedAsyncioTestCase):
             )
         ]
         self.assertEqual(len(selects), 1)
+
+    async def test_v103_issue12_apple_tv_start_resets_progress_via_http_get_and_cold_card_delay(
+        self,
+    ) -> None:
+        """Issue #12: START (offset=0) must reset PMS viewOffset via GET /:/unscrobble|/:/scrobble and wait >=4s on cold ATV."""
+        http_calls: list[tuple[str, str, dict]] = []
+        current_view_count = 0
+
+        class _FakeResp:
+            status = 200
+            headers = {"Content-Type": "application/json"}
+
+            def __init__(self, body: str = "{}") -> None:
+                self._body = body
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return None
+
+            async def text(self) -> str:
+                return self._body
+
+        class _FakeSession:
+            def get(self, url, headers=None, params=None, timeout=None):
+                path = "/" + url.split(":32400/", 1)[-1]
+                http_calls.append(("GET", path, dict(params or {})))
+                if path.startswith("/library/metadata/"):
+                    return _FakeResp(
+                        json.dumps({"MediaContainer": {"Metadata": [{"viewCount": current_view_count}]}})
+                    )
+                return _FakeResp()
+
+            def put(self, url, headers=None, params=None, timeout=None):
+                path = "/" + url.split(":32400/", 1)[-1]
+                http_calls.append(("PUT", path, dict(params or {})))
+                return _FakeResp()
+
+            def post(self, url, headers=None, params=None, timeout=None):
+                path = "/" + url.split(":32400/", 1)[-1]
+                http_calls.append(("POST", path, dict(params or {})))
+                return _FakeResp()
+
+        client = api.PlexApiClient(_FakeHass(), "http://192.168.1.50:32400", "tok")
+        client._session = lambda: _FakeSession()
+
+        # 1a. Unwatched movie with stale viewOffset=271s -> HTTP GET /:/unscrobble (never PUT, never /:/progress?time=0)
+        self.assertTrue(await client.async_set_playback_progress(7770, 0))
+        self.assertIn(
+            ("GET", "/:/unscrobble", {"key": "7770", "identifier": "com.plexapp.plugins.library"}),
+            http_calls,
+        )
+        self.assertEqual([c for c in http_calls if c[0] == "PUT"], [])
+        self.assertEqual([c for c in http_calls if c[1] == "/:/progress"], [])
+
+        # 1b. Previously watched movie (viewCount=2) -> HTTP GET /:/scrobble preserves watched badge while clearing viewOffset
+        http_calls.clear()
+        current_view_count = 2
+        self.assertTrue(await client.async_set_playback_progress(7770, 0))
+        self.assertIn(
+            ("GET", "/:/scrobble", {"key": "7770", "identifier": "com.plexapp.plugins.library"}),
+            http_calls,
+        )
+
+        # 2. Cold Apple TV start with legacy saved delays (cold_app_delay=2, warm_app_delay=1) enforces >=4.0s card render wait
+        sleeps: list[float] = []
+        orig_sleep = hardware.asyncio.sleep
+        orig_wait = hardware._async_wait_event_or_delay
+        hardware.asyncio.sleep = lambda s, **kw: (sleeps.append(float(s)) or orig_sleep(0.001, **kw))
+        hardware._async_wait_event_or_delay = lambda ev, _d: orig_sleep(0.001, result=ev.is_set())
+        try:
+            hass = _FakeHass(
+                {
+                    "media_player.apple_tv_4k": _FakeState("idle"),
+                    "remote.apple_tv_4k": _FakeState("on"),
+                    "media_player.plex_atv": _FakeState("unavailable"),
+                }
+            )
+            legacy_zone = {
+                const.CONF_PLEX_CLIENT: "media_player.plex_atv",
+                const.CONF_POWER_PROFILE: const.PROFILE_APPLE_TV,
+                const.CONF_HARDWARE_ENTITY: "media_player.apple_tv_4k",
+                const.CONF_REMOTE_ENTITY: "remote.apple_tv_4k",
+                const.CONF_COLD_APP_DELAY: 2,
+                const.CONF_WARM_APP_DELAY: 1,
+                const.CONF_ATV_AUTO_SELECT: True,
+            }
+            ok_cold, _, _ = await hardware.async_play_on_zone_with_retry(
+                hass,
+                {const.CONF_SERVER_ID: "srv1"},
+                legacy_zone,
+                {"plex_key": 7770, "resume": 0, "offset": 0},
+                "movie",
+                api=client,
+                start_phase=const.START_PHASE_COLD,
+            )
+            self.assertTrue(ok_cold)
+            self.assertIn(const.ATV_COLD_MIN_CARD_DELAY_SEC, sleeps)
+
+            sleeps.clear()
+            ok_hot, _, _ = await hardware.async_play_on_zone_with_retry(
+                hass,
+                {const.CONF_SERVER_ID: "srv1"},
+                legacy_zone,
+                {"plex_key": 7770, "resume": 0, "offset": 0},
+                "movie",
+                api=client,
+                start_phase=const.START_PHASE_HOT,
+            )
+            self.assertTrue(ok_hot)
+            self.assertIn(const.ATV_WARM_MIN_CARD_DELAY_SEC, sleeps)
+        finally:
+            hardware.asyncio.sleep = orig_sleep
+            hardware._async_wait_event_or_delay = orig_wait
 
 
 if __name__ == "__main__":

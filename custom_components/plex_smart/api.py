@@ -662,39 +662,63 @@ class PlexApiClient:
     async def async_set_playback_progress(
         self, rating_key: int, offset_ms: int, duration_ms: int = 0
     ) -> bool:
-        """Sync saved viewOffset on Plex server via OpenAPI /:/timeline & /:/unscrobble."""
+        """Sync saved viewOffset on Plex server via GET /:/unscrobble|/:/scrobble or /:/timeline."""
         session = self._session()
         clean_offset = max(0, int(offset_ms))
         headers = self._headers()
         ok = False
 
-        try:
-            if clean_offset == 0:
-                async with session.put(
-                    f"{self._base_url}/:/unscrobble",
+        if clean_offset == 0:
+            # In Plex Media Server, /:/progress?time=0 is ignored and PUT /:/unscrobble fails.
+            # Official plexapi resets viewOffset=0 via HTTP GET /:/scrobble (keeps viewCount>0)
+            # or HTTP GET /:/unscrobble (when viewCount==0).
+            view_count = 0
+            try:
+                meta = await self._async_get_container(
+                    f"/library/metadata/{int(rating_key)}",
+                    params={"excludeElements": "Media,Part"},
+                )
+                items = meta.get("Metadata") or []
+                if items:
+                    view_count = _safe_int(items[0].get("viewCount"))
+            except PlexApiError:
+                view_count = 0
+
+            reset_endpoint = "/:/scrobble" if view_count > 0 else "/:/unscrobble"
+            try:
+                async with session.get(
+                    f"{self._base_url}{reset_endpoint}",
                     headers=headers,
                     params={
-                        "identifier": "com.plexapp.plugins.library",
                         "key": str(rating_key),
+                        "identifier": "com.plexapp.plugins.library",
                     },
                     timeout=_DEFAULT_TIMEOUT,
                 ) as resp:
-                    ok = resp.status < 400
-            else:
-                est_duration = max(int(duration_ms), clean_offset + 60000)
-                async with session.post(
-                    f"{self._base_url}/:/timeline",
-                    headers=headers,
-                    params={
-                        "ratingKey": str(rating_key),
-                        "key": f"/library/metadata/{int(rating_key)}",
-                        "state": "paused",
-                        "time": str(clean_offset),
-                        "duration": str(est_duration),
-                    },
-                    timeout=_DEFAULT_TIMEOUT,
-                ) as resp:
-                    ok = resp.status < 400
+                    return resp.status < 400
+            except (aiohttp.ClientError, TimeoutError) as err:
+                _LOGGER.debug(
+                    "Failed to reset Plex progress via %s: %s",
+                    reset_endpoint,
+                    redact_sensitive_text(err),
+                )
+                return False
+
+        try:
+            est_duration = max(int(duration_ms), clean_offset + 60000)
+            async with session.post(
+                f"{self._base_url}/:/timeline",
+                headers=headers,
+                params={
+                    "ratingKey": str(rating_key),
+                    "key": f"/library/metadata/{int(rating_key)}",
+                    "state": "paused",
+                    "time": str(clean_offset),
+                    "duration": str(est_duration),
+                },
+                timeout=_DEFAULT_TIMEOUT,
+            ) as resp:
+                ok = resp.status < 400
         except (aiohttp.ClientError, TimeoutError):
             ok = False
 

@@ -1,4 +1,4 @@
-# 📖 Справочник команд и служб SmartPlex (`v1.0.2`)
+# 📖 Справочник команд и служб SmartPlex (`v1.0.3`)
 
 <p align="left">
   <b>🇷🇺 Русский</b> | <a href="COMMANDS.en.md">🇬🇧 English</a> | <a href="../README.md">⬅ Назад к README</a>

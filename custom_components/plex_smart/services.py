@@ -890,6 +890,18 @@ async def _dispatch_playback(
     optimistic = bool(zone.data.get(CONF_OPTIMISTIC_MODE, DEFAULT_OPTIMISTIC_MODE))
     runtime = getattr(entry, "runtime_data", None)
     active_tasks = getattr(runtime, "active_zone_tasks", None) if runtime else None
+    if (
+        runtime is not None
+        and isinstance(matched_key, int)
+        and not payload.get("resume")
+        and int(payload.get("offset") or 0) == 0
+    ):
+        saved_offsets = getattr(runtime, "saved_resume_offsets", None)
+        if isinstance(saved_offsets, dict):
+            saved_offsets.pop(matched_key, None)
+        anchors = getattr(runtime, "playback_anchors", None)
+        if isinstance(anchors, dict):
+            anchors.pop(matched_key, None)
 
     if initial_phase != START_PHASE_HOT and optimistic:
 
@@ -904,6 +916,7 @@ async def _dispatch_playback(
                     payload,
                     content_type,
                     api=entry.runtime_data.api,
+                    start_phase=start_phase,
                 )
                 final_res = LaunchResult(
                     success=ok,
@@ -1013,6 +1026,7 @@ async def _dispatch_playback(
         payload,
         content_type,
         api=entry.runtime_data.api,
+        start_phase=start_phase,
     )
     res = LaunchResult(
         success=ok,
